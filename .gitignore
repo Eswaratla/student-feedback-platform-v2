@@ -1,0 +1,7 @@
+node_modules/
+dist/
+server/feedback.db
+server/feedback.db-*
+.DS_Store
+*.log
+.env

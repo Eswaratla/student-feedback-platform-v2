@@ -1,0 +1,17 @@
+{
+  "name": "nexgen-university-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "NexGen University — Node.js backend API",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch index.js",
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "pdfkit": "^0.19.1",
+    "sql.js": "^1.12.0"
+  }
+}
