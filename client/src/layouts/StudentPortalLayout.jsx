@@ -18,6 +18,10 @@ export default function StudentPortalLayout() {
     return <Navigate to="/login" replace />;
   }
 
+  if (user.mustChangePassword) {
+    return <Navigate to="/change-password" replace />;
+  }
+
   function handleLogout() {
     logout();
     navigate('/login');

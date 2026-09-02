@@ -1,20 +1,29 @@
 import { useState } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { TEMP_LOGINS, checkTempLogin } from '../config/tempCredentials';
+import { api } from '../api';
 
 const TABS = [
   { id: 'student', label: 'Student' },
   { id: 'staff', label: 'Staff' },
 ];
 
+function currentYearCode() {
+  return String(new Date().getFullYear() % 100).padStart(2, '0');
+}
+
 export default function LoginPage() {
   const navigate = useNavigate();
-  const { user, loginStudent, loginStaff } = useAuth();
+  const { user, login } = useAuth();
   const [activeTab, setActiveTab] = useState('student');
-  const [email, setEmail] = useState('');
+  const [loginId, setLoginId] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  if (user?.mustChangePassword) {
+    return <Navigate to="/change-password" replace />;
+  }
 
   if (user?.role === 'student') {
     return <Navigate to="/student/dashboard" replace />;
@@ -26,40 +35,40 @@ export default function LoginPage() {
 
   function switchTab(tabId) {
     setActiveTab(tabId);
-    setEmail('');
+    setLoginId('');
     setPassword('');
     setError('');
   }
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault();
     setError('');
+    setSubmitting(true);
 
-    const role = activeTab;
-
-    if (!checkTempLogin(role, email, password)) {
-      setError('Invalid email or password. Use the temporary login details below.');
-      return;
-    }
-
-    if (role === 'student') {
-      loginStudent({
-        email,
-        name: TEMP_LOGINS.student.name,
+    try {
+      const account = await api.login({
+        role: activeTab,
+        loginId: loginId.trim().toUpperCase(),
+        password,
       });
-      navigate('/student/dashboard');
-      return;
-    }
+      login(account);
 
-    loginStaff({
-      email,
-      name: TEMP_LOGINS.staff.name,
-    });
-    navigate('/staff/dashboard');
+      if (account.mustChangePassword) {
+        navigate('/change-password');
+        return;
+      }
+
+      navigate(account.role === 'staff' ? '/staff/dashboard' : '/student/dashboard');
+    } catch (err) {
+      setError(err.message || 'Invalid ID or password.');
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   const isStudent = activeTab === 'student';
-  const demoAccount = TEMP_LOGINS[activeTab];
+  const yearCode = currentYearCode();
+  const idPlaceholder = isStudent ? `NGU${yearCode}0001S` : `NGU${yearCode}0001F`;
 
   return (
     <section className="page-section">
@@ -67,18 +76,8 @@ export default function LoginPage() {
         <p className="eyebrow">Portal access</p>
         <h1>Log in</h1>
         <p className="page-intro">
-          Sign in as a student or staff member to access your NexGen University account.
+          Sign in with your NexGen University ID. Students and staff use separate portals.
         </p>
-
-        <div className="demo-login-box">
-          <strong>Temporary login (for testing)</strong>
-          <p>
-            <span>Email:</span> {demoAccount.email}
-          </p>
-          <p>
-            <span>Password:</span> {demoAccount.password}
-          </p>
-        </div>
 
         <div className="login-tabs" role="tablist" aria-label="Login type">
           {TABS.map((tab) => (
@@ -99,12 +98,14 @@ export default function LoginPage() {
           {error && <p className="form-error">{error}</p>}
 
           <label>
-            {isStudent ? 'Student email' : 'Staff email'}
+            {isStudent ? 'Student ID' : 'Staff ID'}
             <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder={demoAccount.email}
+              type="text"
+              value={loginId}
+              onChange={(e) => setLoginId(e.target.value.toUpperCase())}
+              placeholder={idPlaceholder}
+              autoComplete="username"
+              spellCheck="false"
               required
             />
           </label>
@@ -116,12 +117,17 @@ export default function LoginPage() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Enter your password"
+              autoComplete="current-password"
               required
             />
           </label>
 
-          <button type="submit" className="btn btn-primary btn-full">
-            {isStudent ? 'Log in as student' : 'Log in as staff'}
+          <button type="submit" className="btn btn-primary btn-full" disabled={submitting}>
+            {submitting
+              ? 'Signing in...'
+              : isStudent
+                ? 'Log in as student'
+                : 'Log in as staff'}
           </button>
         </form>
 

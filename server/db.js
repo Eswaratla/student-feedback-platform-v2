@@ -2,9 +2,28 @@ import initSqlJs from 'sql.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import bcrypt from 'bcryptjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DB_PATH = path.join(__dirname, 'feedback.db');
+
+const BCRYPT_ROUNDS = 10;
+const STUDENT_ACCOUNT_COUNT = 1000;
+const STUDENT_ID_RE = /^NGU\d{2}\d{4}S$/;
+const STAFF_ID_RE = /^NGU\d{2}\d{4}F$/;
+
+const STAFF_SEED = [
+  { sequence: 1, name: 'Jordan Staff', jobTitle: 'Feedback Administrator' },
+  { sequence: 2, name: 'Riley Morgan', jobTitle: 'Academic Advisor' },
+  { sequence: 3, name: 'Casey Nguyen', jobTitle: 'Department Coordinator' },
+  { sequence: 4, name: 'Avery Patel', jobTitle: 'Quality Officer' },
+  { sequence: 5, name: 'Morgan Lee', jobTitle: 'Student Experience Lead' },
+  { sequence: 6, name: 'Quinn Brooks', jobTitle: 'Survey Analyst' },
+  { sequence: 7, name: 'Harper Singh', jobTitle: 'Program Director' },
+  { sequence: 8, name: 'Cameron Walsh', jobTitle: 'Faculty Liaison' },
+  { sequence: 9, name: 'Reese Okonkwo', jobTitle: 'Operations Manager' },
+  { sequence: 10, name: 'Drew Alvarez', jobTitle: 'Reporting Specialist' },
+];
 
 let db;
 
@@ -12,8 +31,12 @@ function saveDb() {
   fs.writeFileSync(DB_PATH, Buffer.from(db.export()));
 }
 
-function run(sql, params = []) {
+function exec(sql, params = []) {
   db.run(sql, params);
+}
+
+function run(sql, params = []) {
+  exec(sql, params);
   saveDb();
 }
 
@@ -328,6 +351,323 @@ function seedData() {
   }
 }
 
+function padAccountNumber(value) {
+  return String(value).padStart(4, '0');
+}
+
+export function yearCode(date = new Date()) {
+  return String(date.getFullYear() % 100).padStart(2, '0');
+}
+
+export function formatStudentId(sequence, year = yearCode()) {
+  return `NGU${year}${padAccountNumber(sequence)}S`;
+}
+
+export function formatStaffId(sequence, year = yearCode()) {
+  return `NGU${year}${padAccountNumber(sequence)}F`;
+}
+
+function studentIdGlob(year = yearCode()) {
+  return `NGU${year}[0-9][0-9][0-9][0-9]S`;
+}
+
+function staffIdGlob(year = yearCode()) {
+  return `NGU${year}[0-9][0-9][0-9][0-9]F`;
+}
+
+function maxSequenceForYear(ids, year, suffix) {
+  const pattern = new RegExp(`^NGU${year}(\\d{4})${suffix}$`);
+  let max = 0;
+  for (const id of ids) {
+    const match = String(id).match(pattern);
+    if (match) max = Math.max(max, Number(match[1]));
+  }
+  return max;
+}
+
+function initialPasswordFor(loginId) {
+  return `HI${loginId}`;
+}
+
+function normalizeLoginId(value) {
+  return String(value || '').trim().toUpperCase();
+}
+
+function authError(message, status) {
+  const error = new Error(message);
+  error.status = status;
+  return error;
+}
+
+function publicStudentAccount(row) {
+  return {
+    role: 'student',
+    loginId: row.student_id,
+    studentId: row.student_id,
+    email: row.email,
+    name: row.name || '',
+    departmentId: row.department_id || null,
+    courseId: row.course_id || null,
+    mustChangePassword: Boolean(row.must_change_password),
+  };
+}
+
+function publicStaffAccount(row) {
+  return {
+    role: 'staff',
+    loginId: row.staff_id,
+    staffId: row.staff_id,
+    email: row.email,
+    name: row.name || '',
+    departmentId: row.department_id || null,
+    jobTitle: row.job_title || '',
+    mustChangePassword: Boolean(row.must_change_password),
+  };
+}
+
+function existingAccountIds(column, table) {
+  return new Set(
+    all(`SELECT ${column} AS id FROM ${table} WHERE ${column} IS NOT NULL`).map((row) => row.id)
+  );
+}
+
+function seedAuthAccounts() {
+  const year = yearCode();
+  const existingStudentIds = existingAccountIds('student_id', 'students');
+  const currentYearStudentCount = [...existingStudentIds].filter((id) =>
+    new RegExp(`^NGU${year}\\d{4}S$`).test(id)
+  ).length;
+  const missingStudents = Math.max(0, STUDENT_ACCOUNT_COUNT - currentYearStudentCount);
+  if (missingStudents > 0) {
+    console.log(
+      `Seeding ${missingStudents} student accounts for year ${year} with bcrypt hashes. First run can take a few minutes...`
+    );
+  }
+
+  const courses = all('SELECT id, department_id FROM courses ORDER BY id');
+  let createdStudents = 0;
+
+  for (let sequence = 1; sequence <= STUDENT_ACCOUNT_COUNT; sequence += 1) {
+    const studentId = formatStudentId(sequence, year);
+    if (existingStudentIds.has(studentId)) continue;
+
+    const course = courses.length ? courses[(sequence - 1) % courses.length] : null;
+    const padded = padAccountNumber(sequence);
+    const email = `student${year}${padded}@nexgen.edu`;
+    const passwordHash = bcrypt.hashSync(initialPasswordFor(studentId), BCRYPT_ROUNDS);
+    const existingEmail = get('SELECT email, student_id FROM students WHERE email = ?', [email]);
+
+    if (existingEmail?.student_id && existingEmail.student_id !== studentId) {
+      exec(
+        `INSERT INTO students (
+           email, name, department_id, course_id, student_id, password_hash, must_change_password
+         ) VALUES (?, ?, ?, ?, ?, ?, 1)`,
+        [
+          `${studentId.toLowerCase()}@nexgen.edu`,
+          `Student ${padded}`,
+          course?.department_id || null,
+          course?.id || null,
+          studentId,
+          passwordHash,
+        ]
+      );
+    } else if (existingEmail) {
+      exec(
+        `UPDATE students
+         SET student_id = ?, password_hash = ?, must_change_password = 1,
+             name = COALESCE(NULLIF(name, ''), ?),
+             department_id = COALESCE(department_id, ?),
+             course_id = COALESCE(course_id, ?)
+         WHERE email = ?`,
+        [
+          studentId,
+          passwordHash,
+          `Student ${padded}`,
+          course?.department_id || null,
+          course?.id || null,
+          email,
+        ]
+      );
+    } else {
+      exec(
+        `INSERT INTO students (
+           email, name, department_id, course_id, student_id, password_hash, must_change_password
+         ) VALUES (?, ?, ?, ?, ?, ?, 1)`,
+        [
+          email,
+          `Student ${padded}`,
+          course?.department_id || null,
+          course?.id || null,
+          studentId,
+          passwordHash,
+        ]
+      );
+    }
+    createdStudents += 1;
+    existingStudentIds.add(studentId);
+
+    if (createdStudents % 50 === 0) {
+      saveDb();
+      console.log(`Seeded student accounts: ${createdStudents} new this run`);
+    }
+  }
+
+  const existingStaffIds = existingAccountIds('staff_id', 'staff');
+  let createdStaff = 0;
+
+  for (const member of STAFF_SEED) {
+    const staffId = formatStaffId(member.sequence, year);
+    if (existingStaffIds.has(staffId)) continue;
+
+    const email = `staff${year}${padAccountNumber(member.sequence)}@nexgen.edu`;
+    const emailTaken = get('SELECT staff_id FROM staff WHERE email = ?', [email]);
+    const staffEmail =
+      emailTaken && emailTaken.staff_id !== staffId ? `${staffId.toLowerCase()}@nexgen.edu` : email;
+
+    exec(
+      `INSERT INTO staff (
+         staff_id, email, name, password_hash, must_change_password, job_title, created_at
+       ) VALUES (?, ?, ?, ?, 1, ?, datetime('now'))`,
+      [
+        staffId,
+        staffEmail,
+        member.name,
+        bcrypt.hashSync(initialPasswordFor(staffId), BCRYPT_ROUNDS),
+        member.jobTitle,
+      ]
+    );
+    createdStaff += 1;
+    existingStaffIds.add(staffId);
+  }
+
+  saveDb();
+
+  const counts = getAuthAccountCounts();
+  if (createdStudents || createdStaff) {
+    console.log(
+      `Auth seed finished for ${year}: +${createdStudents} students, +${createdStaff} staff (now ${counts.studentAccounts} students, ${counts.staffAccounts} staff).`
+    );
+  } else {
+    console.log(
+      `Auth accounts already present for ${year}: ${counts.studentAccounts} students, ${counts.staffAccounts} staff.`
+    );
+  }
+}
+
+export function getAuthAccountCounts() {
+  const year = yearCode();
+  const students = get(
+    `SELECT COUNT(*) AS count FROM students WHERE student_id GLOB ?`,
+    [studentIdGlob(year)]
+  );
+  const staff = get(
+    `SELECT COUNT(*) AS count FROM staff WHERE staff_id GLOB ?`,
+    [staffIdGlob(year)]
+  );
+  const firstStudentId = formatStudentId(1, year);
+  const lastStudentId = formatStudentId(STUDENT_ACCOUNT_COUNT, year);
+  const firstStudent = get(`SELECT student_id FROM students WHERE student_id = ?`, [firstStudentId]);
+  const lastStudent = get(`SELECT student_id FROM students WHERE student_id = ?`, [lastStudentId]);
+  const studentIds = all(`SELECT student_id FROM students WHERE student_id IS NOT NULL`).map(
+    (row) => row.student_id
+  );
+  const staffIds = all(`SELECT staff_id FROM staff WHERE staff_id IS NOT NULL`).map((row) => row.staff_id);
+
+  return {
+    year,
+    studentAccounts: students?.count || 0,
+    staffAccounts: staff?.count || 0,
+    firstStudentId: firstStudent?.student_id || null,
+    lastStudentId: lastStudent?.student_id || null,
+    nextStudentSequence: maxSequenceForYear(studentIds, year, 'S') + 1,
+    nextStaffSequence: maxSequenceForYear(staffIds, year, 'F') + 1,
+    rangeComplete:
+      (students?.count || 0) === STUDENT_ACCOUNT_COUNT && Boolean(firstStudent) && Boolean(lastStudent),
+  };
+}
+
+export function authenticateUser(role, loginId, password) {
+  const id = normalizeLoginId(loginId);
+  const requestedRole = String(role || '').trim().toLowerCase();
+
+  if (requestedRole !== 'student' && requestedRole !== 'staff') {
+    throw authError('Choose Student or Staff login.', 400);
+  }
+
+  if (!password) {
+    throw authError(
+      requestedRole === 'staff' ? 'Invalid staff ID or password.' : 'Invalid student ID or password.',
+      401
+    );
+  }
+
+  if (requestedRole === 'student') {
+    if (STAFF_ID_RE.test(id)) {
+      throw authError('This is a staff ID. Use the Staff tab to sign in.', 400);
+    }
+    if (!STUDENT_ID_RE.test(id)) {
+      throw authError(`Enter a valid student ID (for example ${formatStudentId(1)}).`, 400);
+    }
+
+    const row = get('SELECT * FROM students WHERE student_id = ?', [id]);
+    if (!row?.password_hash || !bcrypt.compareSync(password, row.password_hash)) {
+      throw authError('Invalid student ID or password.', 401);
+    }
+    return publicStudentAccount(row);
+  }
+
+  if (STUDENT_ID_RE.test(id)) {
+    throw authError('This is a student ID. Use the Student tab to sign in.', 400);
+  }
+  if (!STAFF_ID_RE.test(id)) {
+    throw authError(`Enter a valid staff ID (for example ${formatStaffId(1)}).`, 400);
+  }
+
+  const row = get('SELECT * FROM staff WHERE staff_id = ?', [id]);
+  if (!row?.password_hash || !bcrypt.compareSync(password, row.password_hash)) {
+    throw authError('Invalid staff ID or password.', 401);
+  }
+  return publicStaffAccount(row);
+}
+
+export function changeUserPassword(role, loginId, currentPassword, newPassword) {
+  const requestedRole = String(role || '').trim().toLowerCase();
+  const id = normalizeLoginId(loginId);
+
+  if (requestedRole !== 'student' && requestedRole !== 'staff') {
+    throw authError('Choose Student or Staff login.', 400);
+  }
+  if (!currentPassword || !newPassword) {
+    throw authError('Current password and new password are required.', 400);
+  }
+  if (newPassword.length < 8) {
+    throw authError('New password must be at least 8 characters.', 400);
+  }
+  if (newPassword === currentPassword) {
+    throw authError('Choose a different password from your current password.', 400);
+  }
+  if (newPassword.toUpperCase() === initialPasswordFor(id)) {
+    throw authError('Choose a different password from your initial password.', 400);
+  }
+
+  const account = authenticateUser(requestedRole, id, currentPassword);
+  const passwordHash = bcrypt.hashSync(newPassword, BCRYPT_ROUNDS);
+
+  if (account.role === 'staff') {
+    run('UPDATE staff SET password_hash = ?, must_change_password = 0 WHERE staff_id = ?', [
+      passwordHash,
+      id,
+    ]);
+    return publicStaffAccount(get('SELECT * FROM staff WHERE staff_id = ?', [id]));
+  }
+
+  run('UPDATE students SET password_hash = ?, must_change_password = 0 WHERE student_id = ?', [
+    passwordHash,
+    id,
+  ]);
+  return publicStudentAccount(get('SELECT * FROM students WHERE student_id = ?', [id]));
+}
+
 export async function initDb() {
   const SQL = await initSqlJs();
   db = fs.existsSync(DB_PATH)
@@ -412,15 +752,39 @@ export async function initDb() {
     )
   `);
 
+  db.run(`
+    CREATE TABLE IF NOT EXISTS staff (
+      staff_id TEXT PRIMARY KEY,
+      email TEXT UNIQUE,
+      name TEXT NOT NULL,
+      password_hash TEXT NOT NULL,
+      must_change_password INTEGER DEFAULT 1,
+      department_id INTEGER,
+      job_title TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (department_id) REFERENCES departments(id)
+    )
+  `);
+
   ensureColumn('surveys', 'department_id', 'INTEGER');
   ensureColumn('surveys', 'course_id', 'INTEGER');
   ensureColumn('surveys', 'closing_date', 'TEXT');
   ensureColumn('surveys', 'opening_date', 'TEXT');
   ensureColumn('surveys', 'staff_only', 'INTEGER DEFAULT 0');
   ensureColumn('responses', 'is_anonymous', 'INTEGER DEFAULT 0');
+  ensureColumn('students', 'student_id', 'TEXT');
+  ensureColumn('students', 'password_hash', 'TEXT');
+  ensureColumn('students', 'must_change_password', 'INTEGER DEFAULT 1');
+
+  db.run(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_students_student_id
+    ON students(student_id)
+    WHERE student_id IS NOT NULL
+  `);
 
   saveDb();
   seedData();
+  seedAuthAccounts();
 }
 
 export function listDepartments() {
@@ -729,12 +1093,22 @@ export function getStudentProfile(email) {
   );
 
   if (!row) {
-    return { email, name: '', departmentId: null, courseId: null, departmentName: null, courseName: null, courseCode: null };
+    return {
+      email,
+      name: '',
+      studentId: null,
+      departmentId: null,
+      courseId: null,
+      departmentName: null,
+      courseName: null,
+      courseCode: null,
+    };
   }
 
   return {
     email: row.email,
     name: row.name || '',
+    studentId: row.student_id || null,
     departmentId: row.department_id || null,
     courseId: row.course_id || null,
     departmentName: row.department_name || null,
