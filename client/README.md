@@ -12,7 +12,7 @@ This folder is the **frontend** for NexGen University.
 
 - Runs the website on **http://localhost:5173**
 - Shows pages: Home, About Us, Apply Now, Log in
-- Will talk to the Node.js backend API in later steps
+- Talks to the Node.js backend API for login, applications, surveys, and reports
 
 ## Commands
 

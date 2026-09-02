@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../api';
+import PasswordChangeForm from '../../components/PasswordChangeForm';
 
 export default function StaffProfilePage() {
   const { user, updateProfile } = useAuth();
@@ -116,6 +117,10 @@ export default function StaffProfilePage() {
 
           <button type="submit" className="btn btn-primary">Save settings</button>
         </form>
+      </section>
+
+      <section className="portal-card portal-form-card">
+        <PasswordChangeForm />
       </section>
     </div>
   );

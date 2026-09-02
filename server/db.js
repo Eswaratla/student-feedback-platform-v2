@@ -8,21 +8,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DB_PATH = path.join(__dirname, 'feedback.db');
 
 const BCRYPT_ROUNDS = 10;
-const STUDENT_ACCOUNT_COUNT = 1000;
 const STUDENT_ID_RE = /^NGU\d{2}\d{4}S$/;
 const STAFF_ID_RE = /^NGU\d{2}\d{4}F$/;
 
 const STAFF_SEED = [
-  { sequence: 1, name: 'Jordan Staff', jobTitle: 'Feedback Administrator' },
-  { sequence: 2, name: 'Riley Morgan', jobTitle: 'Academic Advisor' },
-  { sequence: 3, name: 'Casey Nguyen', jobTitle: 'Department Coordinator' },
-  { sequence: 4, name: 'Avery Patel', jobTitle: 'Quality Officer' },
-  { sequence: 5, name: 'Morgan Lee', jobTitle: 'Student Experience Lead' },
-  { sequence: 6, name: 'Quinn Brooks', jobTitle: 'Survey Analyst' },
-  { sequence: 7, name: 'Harper Singh', jobTitle: 'Program Director' },
-  { sequence: 8, name: 'Cameron Walsh', jobTitle: 'Faculty Liaison' },
-  { sequence: 9, name: 'Reese Okonkwo', jobTitle: 'Operations Manager' },
-  { sequence: 10, name: 'Drew Alvarez', jobTitle: 'Reporting Specialist' },
+  { sequence: 1, name: 'Jordan Staff', jobTitle: 'Feedback Administrator', isAdmin: true },
+  { sequence: 2, name: 'Riley Morgan', jobTitle: 'Academic Advisor', isAdmin: false },
 ];
 
 let db;
@@ -409,6 +400,10 @@ function publicStudentAccount(row) {
     departmentId: row.department_id || null,
     courseId: row.course_id || null,
     mustChangePassword: Boolean(row.must_change_password),
+    accountStatus: row.account_status || 'active',
+    academicYear: row.academic_year || '',
+    yearLevel: row.year_level || '',
+    semester: row.semester || '',
   };
 }
 
@@ -422,7 +417,13 @@ function publicStaffAccount(row) {
     departmentId: row.department_id || null,
     jobTitle: row.job_title || '',
     mustChangePassword: Boolean(row.must_change_password),
+    isAdmin: Boolean(row.is_admin),
+    accountStatus: row.account_status || 'active',
   };
+}
+
+function isActiveAccount(row) {
+  return !row?.account_status || row.account_status === 'active';
 }
 
 function existingAccountIds(column, table) {
@@ -433,85 +434,6 @@ function existingAccountIds(column, table) {
 
 function seedAuthAccounts() {
   const year = yearCode();
-  const existingStudentIds = existingAccountIds('student_id', 'students');
-  const currentYearStudentCount = [...existingStudentIds].filter((id) =>
-    new RegExp(`^NGU${year}\\d{4}S$`).test(id)
-  ).length;
-  const missingStudents = Math.max(0, STUDENT_ACCOUNT_COUNT - currentYearStudentCount);
-  if (missingStudents > 0) {
-    console.log(
-      `Seeding ${missingStudents} student accounts for year ${year} with bcrypt hashes. First run can take a few minutes...`
-    );
-  }
-
-  const courses = all('SELECT id, department_id FROM courses ORDER BY id');
-  let createdStudents = 0;
-
-  for (let sequence = 1; sequence <= STUDENT_ACCOUNT_COUNT; sequence += 1) {
-    const studentId = formatStudentId(sequence, year);
-    if (existingStudentIds.has(studentId)) continue;
-
-    const course = courses.length ? courses[(sequence - 1) % courses.length] : null;
-    const padded = padAccountNumber(sequence);
-    const email = `student${year}${padded}@nexgen.edu`;
-    const passwordHash = bcrypt.hashSync(initialPasswordFor(studentId), BCRYPT_ROUNDS);
-    const existingEmail = get('SELECT email, student_id FROM students WHERE email = ?', [email]);
-
-    if (existingEmail?.student_id && existingEmail.student_id !== studentId) {
-      exec(
-        `INSERT INTO students (
-           email, name, department_id, course_id, student_id, password_hash, must_change_password
-         ) VALUES (?, ?, ?, ?, ?, ?, 1)`,
-        [
-          `${studentId.toLowerCase()}@nexgen.edu`,
-          `Student ${padded}`,
-          course?.department_id || null,
-          course?.id || null,
-          studentId,
-          passwordHash,
-        ]
-      );
-    } else if (existingEmail) {
-      exec(
-        `UPDATE students
-         SET student_id = ?, password_hash = ?, must_change_password = 1,
-             name = COALESCE(NULLIF(name, ''), ?),
-             department_id = COALESCE(department_id, ?),
-             course_id = COALESCE(course_id, ?)
-         WHERE email = ?`,
-        [
-          studentId,
-          passwordHash,
-          `Student ${padded}`,
-          course?.department_id || null,
-          course?.id || null,
-          email,
-        ]
-      );
-    } else {
-      exec(
-        `INSERT INTO students (
-           email, name, department_id, course_id, student_id, password_hash, must_change_password
-         ) VALUES (?, ?, ?, ?, ?, ?, 1)`,
-        [
-          email,
-          `Student ${padded}`,
-          course?.department_id || null,
-          course?.id || null,
-          studentId,
-          passwordHash,
-        ]
-      );
-    }
-    createdStudents += 1;
-    existingStudentIds.add(studentId);
-
-    if (createdStudents % 50 === 0) {
-      saveDb();
-      console.log(`Seeded student accounts: ${createdStudents} new this run`);
-    }
-  }
-
   const existingStaffIds = existingAccountIds('staff_id', 'staff');
   let createdStaff = 0;
 
@@ -526,30 +448,45 @@ function seedAuthAccounts() {
 
     exec(
       `INSERT INTO staff (
-         staff_id, email, name, password_hash, must_change_password, job_title, created_at
-       ) VALUES (?, ?, ?, ?, 1, ?, datetime('now'))`,
+         staff_id, email, name, password_hash, must_change_password, job_title, is_admin, account_status, created_at
+       ) VALUES (?, ?, ?, ?, 0, ?, ?, 'active', datetime('now'))`,
       [
         staffId,
         staffEmail,
         member.name,
         bcrypt.hashSync(initialPasswordFor(staffId), BCRYPT_ROUNDS),
         member.jobTitle,
+        member.isAdmin ? 1 : 0,
       ]
     );
     createdStaff += 1;
     existingStaffIds.add(staffId);
   }
 
+  for (let sequence = 3; sequence <= 10; sequence += 1) {
+    const padded = padAccountNumber(sequence);
+    const leftoverEmails = [
+      `staff${padded}@nexgen.edu`,
+      `staff${year}${padded}@nexgen.edu`,
+      `ngu${year}${padded}f@nexgen.edu`,
+    ];
+    leftoverEmails.forEach((email) => {
+      exec(`UPDATE staff SET account_status = 'inactive' WHERE lower(email) = ?`, [email]);
+    });
+  }
+
+  exec(`UPDATE staff SET account_status = 'active' WHERE account_status IS NULL OR account_status = ''`);
+  exec(`UPDATE students SET account_status = 'active' WHERE account_status IS NULL OR account_status = ''`);
   saveDb();
 
   const counts = getAuthAccountCounts();
-  if (createdStudents || createdStaff) {
+  if (createdStaff) {
     console.log(
-      `Auth seed finished for ${year}: +${createdStudents} students, +${createdStaff} staff (now ${counts.studentAccounts} students, ${counts.staffAccounts} staff).`
+      `Staff seed finished for ${year}: +${createdStaff} staff (now ${counts.staffAccounts} staff, ${counts.studentAccounts} students). Students are created by staff, not pre-seeded.`
     );
   } else {
     console.log(
-      `Auth accounts already present for ${year}: ${counts.studentAccounts} students, ${counts.staffAccounts} staff.`
+      `Auth accounts ready for ${year}: ${counts.staffAccounts} staff, ${counts.studentAccounts} existing students. No students were auto-created.`
     );
   }
 }
@@ -564,25 +501,11 @@ export function getAuthAccountCounts() {
     `SELECT COUNT(*) AS count FROM staff WHERE staff_id GLOB ?`,
     [staffIdGlob(year)]
   );
-  const firstStudentId = formatStudentId(1, year);
-  const lastStudentId = formatStudentId(STUDENT_ACCOUNT_COUNT, year);
-  const firstStudent = get(`SELECT student_id FROM students WHERE student_id = ?`, [firstStudentId]);
-  const lastStudent = get(`SELECT student_id FROM students WHERE student_id = ?`, [lastStudentId]);
-  const studentIds = all(`SELECT student_id FROM students WHERE student_id IS NOT NULL`).map(
-    (row) => row.student_id
-  );
-  const staffIds = all(`SELECT staff_id FROM staff WHERE staff_id IS NOT NULL`).map((row) => row.staff_id);
 
   return {
     year,
     studentAccounts: students?.count || 0,
     staffAccounts: staff?.count || 0,
-    firstStudentId: firstStudent?.student_id || null,
-    lastStudentId: lastStudent?.student_id || null,
-    nextStudentSequence: maxSequenceForYear(studentIds, year, 'S') + 1,
-    nextStaffSequence: maxSequenceForYear(staffIds, year, 'F') + 1,
-    rangeComplete:
-      (students?.count || 0) === STUDENT_ACCOUNT_COUNT && Boolean(firstStudent) && Boolean(lastStudent),
   };
 }
 
@@ -606,12 +529,15 @@ export function authenticateUser(role, loginId, password) {
       throw authError('This is a staff ID. Use the Staff tab to sign in.', 400);
     }
     if (!STUDENT_ID_RE.test(id)) {
-      throw authError(`Enter a valid student ID (for example ${formatStudentId(1)}).`, 400);
+      throw authError('Enter a valid student ID (for example NGUXXXXXXS).', 400);
     }
 
     const row = get('SELECT * FROM students WHERE student_id = ?', [id]);
     if (!row?.password_hash || !bcrypt.compareSync(password, row.password_hash)) {
       throw authError('Invalid student ID or password.', 401);
+    }
+    if (!isActiveAccount(row)) {
+      throw authError('This student account has been deactivated.', 403);
     }
     return publicStudentAccount(row);
   }
@@ -620,12 +546,15 @@ export function authenticateUser(role, loginId, password) {
     throw authError('This is a student ID. Use the Student tab to sign in.', 400);
   }
   if (!STAFF_ID_RE.test(id)) {
-    throw authError(`Enter a valid staff ID (for example ${formatStaffId(1)}).`, 400);
+    throw authError('Enter a valid staff ID (for example NGUXXXXXXF).', 400);
   }
 
   const row = get('SELECT * FROM staff WHERE staff_id = ?', [id]);
   if (!row?.password_hash || !bcrypt.compareSync(password, row.password_hash)) {
     throw authError('Invalid staff ID or password.', 401);
+  }
+  if (!isActiveAccount(row)) {
+    throw authError('This staff account has been deactivated.', 403);
   }
   return publicStaffAccount(row);
 }
@@ -666,6 +595,406 @@ export function changeUserPassword(role, loginId, currentPassword, newPassword) 
     id,
   ]);
   return publicStudentAccount(get('SELECT * FROM students WHERE student_id = ?', [id]));
+}
+
+function nextStudentId() {
+  const year = yearCode();
+  const ids = all('SELECT student_id FROM students WHERE student_id GLOB ?', [studentIdGlob(year)]).map(
+    (row) => row.student_id
+  );
+  let sequence = maxSequenceForYear(ids, year, 'S') + 1;
+
+  while (sequence <= 9999) {
+    const studentId = formatStudentId(sequence, year);
+    if (!get('SELECT student_id FROM students WHERE student_id = ?', [studentId])) {
+      return studentId;
+    }
+    sequence += 1;
+  }
+
+  throw authError('No more student IDs are available for this year.', 409);
+}
+
+function nextStaffId() {
+  const year = yearCode();
+  const ids = all('SELECT staff_id FROM staff WHERE staff_id GLOB ?', [staffIdGlob(year)]).map(
+    (row) => row.staff_id
+  );
+  let sequence = maxSequenceForYear(ids, year, 'F') + 1;
+
+  while (sequence <= 9999) {
+    const staffId = formatStaffId(sequence, year);
+    if (!get('SELECT staff_id FROM staff WHERE staff_id = ?', [staffId])) {
+      return staffId;
+    }
+    sequence += 1;
+  }
+
+  throw authError('No more staff IDs are available for this year.', 409);
+}
+
+function resolveProgram(departmentId, courseId) {
+  let resolvedCourseId = courseId ? Number(courseId) : null;
+  let resolvedDepartmentId = departmentId ? Number(departmentId) : null;
+
+  if (resolvedCourseId) {
+    const course = get('SELECT id, department_id FROM courses WHERE id = ?', [resolvedCourseId]);
+    if (!course) throw authError('Selected program was not found.', 400);
+    resolvedDepartmentId = course.department_id;
+  } else if (resolvedDepartmentId) {
+    const department = get('SELECT id FROM departments WHERE id = ?', [resolvedDepartmentId]);
+    if (!department) throw authError('Selected department was not found.', 400);
+  }
+
+  return { resolvedDepartmentId, resolvedCourseId };
+}
+
+function mapManagedStudent(row) {
+  if (!row) return null;
+  return {
+    ...publicStudentAccount(row),
+    departmentName: row.department_name || null,
+    courseName: row.course_name || null,
+    courseCode: row.course_code || null,
+  };
+}
+
+function studentManagementSelect() {
+  return `
+    SELECT s.*, d.name AS department_name, c.name AS course_name, c.code AS course_code
+    FROM students s
+    LEFT JOIN departments d ON d.id = s.department_id
+    LEFT JOIN courses c ON c.id = s.course_id
+  `;
+}
+
+export function getStaffActor(staffId) {
+  const id = normalizeLoginId(staffId);
+  const row = get('SELECT * FROM staff WHERE staff_id = ?', [id]);
+  if (!row || !isActiveAccount(row)) {
+    throw authError('Staff authentication is required.', 401);
+  }
+  return publicStaffAccount(row);
+}
+
+export function applyAsStudent({ name, email, phone, departmentId = null, courseId = null, message = '' }) {
+  const trimmedName = String(name || '').trim();
+  const trimmedEmail = String(email || '').trim().toLowerCase();
+  const trimmedPhone = String(phone || '').trim();
+  const trimmedMessage = String(message || '').trim();
+
+  if (!trimmedName) throw authError('Full name is required.', 400);
+  if (!trimmedEmail || !trimmedEmail.includes('@')) throw authError('A valid email is required.', 400);
+
+  const { resolvedDepartmentId, resolvedCourseId } = resolveProgram(departmentId, courseId);
+
+  run(
+    `INSERT INTO applications (
+       student_id, name, email, phone, department_id, course_id, message, created_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+    [
+      null,
+      trimmedName,
+      trimmedEmail,
+      trimmedPhone || null,
+      resolvedDepartmentId,
+      resolvedCourseId,
+      trimmedMessage || null,
+    ]
+  );
+
+  return {
+    submitted: true,
+    name: trimmedName,
+    email: trimmedEmail,
+    message: 'Application received. An authorized staff member will create your student account.',
+  };
+}
+
+export function listApplications() {
+  return all(
+    `SELECT a.*, d.name AS department_name, c.name AS course_name, c.code AS course_code
+     FROM applications a
+     LEFT JOIN departments d ON d.id = a.department_id
+     LEFT JOIN courses c ON c.id = a.course_id
+     ORDER BY a.created_at DESC`
+  ).map((row) => ({
+    id: row.id,
+    name: row.name,
+    email: row.email,
+    phone: row.phone || '',
+    departmentId: row.department_id || null,
+    courseId: row.course_id || null,
+    departmentName: row.department_name || null,
+    courseName: row.course_name || null,
+    courseCode: row.course_code || null,
+    message: row.message || '',
+    createdAt: row.created_at,
+  }));
+}
+
+export function createStudentAccount({
+  name,
+  email,
+  departmentId = null,
+  courseId = null,
+  academicYear = '',
+  yearLevel = '',
+  semester = '',
+}) {
+  const trimmedName = String(name || '').trim();
+  const trimmedEmail = String(email || '').trim().toLowerCase();
+  if (!trimmedName) throw authError('Full name is required.', 400);
+  if (!trimmedEmail || !trimmedEmail.includes('@')) throw authError('A valid email is required.', 400);
+
+  const existing = get('SELECT email, student_id FROM students WHERE lower(email) = ?', [trimmedEmail]);
+  if (existing?.student_id) {
+    throw authError('A student account with this email already exists.', 409);
+  }
+
+  const { resolvedDepartmentId, resolvedCourseId } = resolveProgram(departmentId, courseId);
+  const studentId = nextStudentId();
+  const initialPassword = initialPasswordFor(studentId);
+  const passwordHash = bcrypt.hashSync(initialPassword, BCRYPT_ROUNDS);
+
+  if (existing) {
+    run(
+      `UPDATE students
+       SET name = ?, department_id = ?, course_id = ?, student_id = ?, password_hash = ?,
+           must_change_password = 0, account_status = 'active', academic_year = ?,
+           year_level = ?, semester = ?
+       WHERE email = ?`,
+      [
+        trimmedName,
+        resolvedDepartmentId,
+        resolvedCourseId,
+        studentId,
+        passwordHash,
+        String(academicYear || '').trim() || null,
+        String(yearLevel || '').trim() || null,
+        String(semester || '').trim() || null,
+        existing.email,
+      ]
+    );
+  } else {
+    run(
+      `INSERT INTO students (
+         email, name, department_id, course_id, student_id, password_hash, must_change_password,
+         account_status, academic_year, year_level, semester
+       ) VALUES (?, ?, ?, ?, ?, ?, 0, 'active', ?, ?, ?)`,
+      [
+        trimmedEmail,
+        trimmedName,
+        resolvedDepartmentId,
+        resolvedCourseId,
+        studentId,
+        passwordHash,
+        String(academicYear || '').trim() || null,
+        String(yearLevel || '').trim() || null,
+        String(semester || '').trim() || null,
+      ]
+    );
+  }
+
+  return {
+    student: mapManagedStudent(get(`${studentManagementSelect()} WHERE s.student_id = ?`, [studentId])),
+    studentId,
+    initialPassword,
+    passwordTemporary: true,
+  };
+}
+
+export function listManagedStudents({
+  query = '',
+  departmentId = null,
+  courseId = null,
+  academicYear = '',
+  yearLevel = '',
+  semester = '',
+  accountStatus = '',
+} = {}) {
+  const conditions = ['s.student_id IS NOT NULL'];
+  const params = [];
+
+  if (query.trim()) {
+    conditions.push('(s.student_id LIKE ? OR s.name LIKE ? OR s.email LIKE ?)');
+    const like = `%${query.trim()}%`;
+    params.push(like, like, like);
+  }
+  if (departmentId) {
+    conditions.push('s.department_id = ?');
+    params.push(Number(departmentId));
+  }
+  if (courseId) {
+    conditions.push('s.course_id = ?');
+    params.push(Number(courseId));
+  }
+  if (academicYear) {
+    conditions.push('s.academic_year = ?');
+    params.push(academicYear);
+  }
+  if (yearLevel) {
+    conditions.push('s.year_level = ?');
+    params.push(yearLevel);
+  }
+  if (semester) {
+    conditions.push('s.semester = ?');
+    params.push(semester);
+  }
+  if (accountStatus) {
+    conditions.push("COALESCE(s.account_status, 'active') = ?");
+    params.push(accountStatus);
+  }
+
+  return all(
+    `${studentManagementSelect()} WHERE ${conditions.join(' AND ')} ORDER BY s.student_id ASC`,
+    params
+  ).map(mapManagedStudent);
+}
+
+export function getManagedStudent(studentId) {
+  const row = get(`${studentManagementSelect()} WHERE s.student_id = ?`, [normalizeLoginId(studentId)]);
+  if (!row) throw authError('Student not found.', 404);
+  return mapManagedStudent(row);
+}
+
+export function updateManagedStudent(studentId, {
+  name,
+  email,
+  departmentId = null,
+  courseId = null,
+  academicYear = '',
+  yearLevel = '',
+  semester = '',
+}) {
+  const current = get('SELECT * FROM students WHERE student_id = ?', [normalizeLoginId(studentId)]);
+  if (!current) throw authError('Student not found.', 404);
+
+  const trimmedName = String(name || current.name || '').trim();
+  const trimmedEmail = String(email || current.email || '').trim().toLowerCase();
+  if (!trimmedName) throw authError('Full name is required.', 400);
+  if (!trimmedEmail || !trimmedEmail.includes('@')) throw authError('A valid email is required.', 400);
+
+  const emailTaken = get(
+    'SELECT student_id FROM students WHERE lower(email) = ? AND student_id != ?',
+    [trimmedEmail, current.student_id]
+  );
+  if (emailTaken) throw authError('Another student already uses this email.', 409);
+
+  const { resolvedDepartmentId, resolvedCourseId } = resolveProgram(departmentId, courseId);
+
+  run(
+    `UPDATE students
+     SET name = ?, email = ?, department_id = ?, course_id = ?, academic_year = ?,
+         year_level = ?, semester = ?
+     WHERE student_id = ?`,
+    [
+      trimmedName,
+      trimmedEmail,
+      resolvedDepartmentId,
+      resolvedCourseId,
+      String(academicYear || '').trim() || null,
+      String(yearLevel || '').trim() || null,
+      String(semester || '').trim() || null,
+      current.student_id,
+    ]
+  );
+
+  return getManagedStudent(current.student_id);
+}
+
+export function setStudentAccountStatus(studentId, accountStatus) {
+  if (accountStatus !== 'active' && accountStatus !== 'inactive') {
+    throw authError('Account status must be active or inactive.', 400);
+  }
+  const current = get('SELECT student_id FROM students WHERE student_id = ?', [normalizeLoginId(studentId)]);
+  if (!current) throw authError('Student not found.', 404);
+  run('UPDATE students SET account_status = ? WHERE student_id = ?', [accountStatus, current.student_id]);
+  return getManagedStudent(current.student_id);
+}
+
+export function createStaffAccount({ name, email, jobTitle = '', isAdmin = false }) {
+  const trimmedName = String(name || '').trim();
+  const trimmedEmail = String(email || '').trim().toLowerCase();
+  if (!trimmedName) throw authError('Full name is required.', 400);
+  if (!trimmedEmail || !trimmedEmail.includes('@')) throw authError('A valid email is required.', 400);
+
+  const existing = get('SELECT staff_id FROM staff WHERE lower(email) = ?', [trimmedEmail]);
+  if (existing) throw authError('A staff account with this email already exists.', 409);
+
+  const staffId = nextStaffId();
+  const initialPassword = initialPasswordFor(staffId);
+
+  run(
+    `INSERT INTO staff (
+       staff_id, email, name, password_hash, must_change_password, job_title, is_admin, account_status, created_at
+     ) VALUES (?, ?, ?, ?, 0, ?, ?, 'active', datetime('now'))`,
+    [
+      staffId,
+      trimmedEmail,
+      trimmedName,
+      bcrypt.hashSync(initialPassword, BCRYPT_ROUNDS),
+      String(jobTitle || '').trim(),
+      isAdmin ? 1 : 0,
+    ]
+  );
+
+  return {
+    staff: publicStaffAccount(get('SELECT * FROM staff WHERE staff_id = ?', [staffId])),
+    staffId,
+    initialPassword,
+    passwordTemporary: true,
+  };
+}
+
+export function listStaffAccounts() {
+  return all('SELECT * FROM staff ORDER BY staff_id ASC').map(publicStaffAccount);
+}
+
+export function setStaffAccountStatus(staffId, accountStatus, actorStaffId) {
+  if (accountStatus !== 'active' && accountStatus !== 'inactive') {
+    throw authError('Account status must be active or inactive.', 400);
+  }
+  const id = normalizeLoginId(staffId);
+  const current = get('SELECT * FROM staff WHERE staff_id = ?', [id]);
+  if (!current) throw authError('Staff account not found.', 404);
+  if (id === normalizeLoginId(actorStaffId) && accountStatus === 'inactive') {
+    throw authError('You cannot deactivate your own account.', 400);
+  }
+  run('UPDATE staff SET account_status = ? WHERE staff_id = ?', [accountStatus, id]);
+  return publicStaffAccount(get('SELECT * FROM staff WHERE staff_id = ?', [id]));
+}
+
+export function resetStudentPassword(studentId) {
+  const current = get('SELECT student_id FROM students WHERE student_id = ?', [normalizeLoginId(studentId)]);
+  if (!current) throw authError('Student not found.', 404);
+  const initialPassword = initialPasswordFor(current.student_id);
+  run('UPDATE students SET password_hash = ? WHERE student_id = ?', [
+    bcrypt.hashSync(initialPassword, BCRYPT_ROUNDS),
+    current.student_id,
+  ]);
+  return {
+    studentId: current.student_id,
+    initialPassword,
+    passwordTemporary: true,
+  };
+}
+
+export function resetStaffPassword(staffId, actorStaffId) {
+  const id = normalizeLoginId(staffId);
+  const current = get('SELECT staff_id FROM staff WHERE staff_id = ?', [id]);
+  if (!current) throw authError('Staff account not found.', 404);
+  const initialPassword = initialPasswordFor(id);
+  run('UPDATE staff SET password_hash = ? WHERE staff_id = ?', [
+    bcrypt.hashSync(initialPassword, BCRYPT_ROUNDS),
+    id,
+  ]);
+  return {
+    staffId: id,
+    initialPassword,
+    passwordTemporary: true,
+    resetOwnAccount: id === normalizeLoginId(actorStaffId),
+  };
 }
 
 export async function initDb() {
@@ -772,9 +1101,30 @@ export async function initDb() {
   ensureColumn('surveys', 'opening_date', 'TEXT');
   ensureColumn('surveys', 'staff_only', 'INTEGER DEFAULT 0');
   ensureColumn('responses', 'is_anonymous', 'INTEGER DEFAULT 0');
+  db.run(`
+    CREATE TABLE IF NOT EXISTS applications (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      student_id TEXT,
+      name TEXT NOT NULL,
+      email TEXT NOT NULL,
+      phone TEXT,
+      department_id INTEGER,
+      course_id INTEGER,
+      message TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    )
+  `);
+
   ensureColumn('students', 'student_id', 'TEXT');
   ensureColumn('students', 'password_hash', 'TEXT');
   ensureColumn('students', 'must_change_password', 'INTEGER DEFAULT 1');
+  ensureColumn('students', 'phone', 'TEXT');
+  ensureColumn('students', 'academic_year', 'TEXT');
+  ensureColumn('students', 'year_level', 'TEXT');
+  ensureColumn('students', 'semester', 'TEXT');
+  ensureColumn('students', 'account_status', "TEXT DEFAULT 'active'");
+  ensureColumn('staff', 'is_admin', 'INTEGER DEFAULT 0');
+  ensureColumn('staff', 'account_status', "TEXT DEFAULT 'active'");
 
   db.run(`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_students_student_id
@@ -1082,6 +1432,23 @@ export function getStudentResponses(studentEmail) {
   }));
 }
 
+export function getStudentProfileByStudentId(studentId) {
+  const row = get('SELECT email FROM students WHERE student_id = ?', [normalizeLoginId(studentId)]);
+  if (!row?.email) {
+    return {
+      email: '',
+      name: '',
+      studentId: normalizeLoginId(studentId) || null,
+      departmentId: null,
+      courseId: null,
+      departmentName: null,
+      courseName: null,
+      courseCode: null,
+    };
+  }
+  return getStudentProfile(row.email);
+}
+
 export function getStudentProfile(email) {
   const row = get(
     `SELECT s.*, d.name AS department_name, c.name AS course_name, c.code AS course_code
@@ -1117,30 +1484,13 @@ export function getStudentProfile(email) {
   };
 }
 
-export function saveStudentProfile(email, { name, departmentId = null, courseId = null }) {
-  let resolvedDepartmentId = departmentId || null;
-  if (courseId && !resolvedDepartmentId) {
-    const course = get('SELECT department_id FROM courses WHERE id = ?', [courseId]);
-    resolvedDepartmentId = course?.department_id || null;
-  }
-
+export function saveStudentProfile(email, { name }) {
   const existing = get('SELECT email FROM students WHERE email = ?', [email]);
-  if (existing) {
-    run('UPDATE students SET name = ?, department_id = ?, course_id = ? WHERE email = ?', [
-      name || '',
-      resolvedDepartmentId,
-      courseId || null,
-      email,
-    ]);
-  } else {
-    run('INSERT INTO students (email, name, department_id, course_id) VALUES (?, ?, ?, ?)', [
-      email,
-      name || '',
-      resolvedDepartmentId,
-      courseId || null,
-    ]);
+  if (!existing) {
+    throw authError('Student profile was not found.', 404);
   }
 
+  run('UPDATE students SET name = ? WHERE email = ?', [String(name || '').trim(), email]);
   return getStudentProfile(email);
 }
 

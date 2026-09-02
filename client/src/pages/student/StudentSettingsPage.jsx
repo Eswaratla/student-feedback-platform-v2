@@ -1,37 +1,24 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../api';
+import PasswordChangeForm from '../../components/PasswordChangeForm';
 
 export default function StudentSettingsPage() {
-  const { user } = useAuth();
+  const { user, updateProfile } = useAuth();
   const [name, setName] = useState(user.name);
-  const [email, setEmail] = useState(user.email);
-  const [departmentId, setDepartmentId] = useState('');
-  const [courseId, setCourseId] = useState('');
-  const [departments, setDepartments] = useState([]);
-  const [courses, setCourses] = useState([]);
+  const [profile, setProfile] = useState(null);
   const [notifications, setNotifications] = useState(true);
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
 
   useEffect(() => {
-    api.getDepartments().then(setDepartments).catch(() => {});
-    api.getCourses().then(setCourses).catch(() => {});
-  }, []);
-
-  useEffect(() => {
     api.getStudentProfile(user.email)
-      .then((profile) => {
-        if (profile.name) setName(profile.name);
-        setDepartmentId(profile.departmentId ? String(profile.departmentId) : '');
-        setCourseId(profile.courseId ? String(profile.courseId) : '');
+      .then((nextProfile) => {
+        setProfile(nextProfile);
+        if (nextProfile.name) setName(nextProfile.name);
       })
       .catch(() => {});
   }, [user.email]);
-
-  const filteredCourses = departmentId
-    ? courses.filter((course) => course.departmentId === Number(departmentId))
-    : courses;
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -39,12 +26,10 @@ export default function StudentSettingsPage() {
     setStatus('');
 
     try {
-      await api.saveStudentProfile(user.email, {
-        name,
-        departmentId: departmentId ? Number(departmentId) : null,
-        courseId: courseId ? Number(courseId) : null,
-      });
-      setStatus('Settings saved. Your survey list now matches your program.');
+      const saved = await api.saveStudentProfile(user.email, { name });
+      setProfile(saved);
+      updateProfile({ name: saved.name });
+      setStatus('Settings saved.');
     } catch (err) {
       setError(err.message);
     }
@@ -54,7 +39,7 @@ export default function StudentSettingsPage() {
     <div className="portal-page">
       <section className="portal-card">
         <h2>Settings</h2>
-        <p>Manage your student portal profile and preferences.</p>
+        <p>Manage your student portal profile and password.</p>
       </section>
 
       {error && <p className="form-error">{error}</p>}
@@ -79,45 +64,30 @@ export default function StudentSettingsPage() {
 
           <label>
             Email
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-            />
+            <input type="email" value={user.email || ''} readOnly />
           </label>
 
           <label>
             Department
-            <select
-              value={departmentId}
-              onChange={(e) => {
-                setDepartmentId(e.target.value);
-                setCourseId('');
-              }}
-            >
-              <option value="">Not set</option>
-              {departments.map((dept) => (
-                <option key={dept.id} value={dept.id}>{dept.name}</option>
-              ))}
-            </select>
+            <input type="text" value={profile?.departmentName || 'Assigned by staff'} readOnly />
           </label>
 
           <label>
             Program
-            <select value={courseId} onChange={(e) => setCourseId(e.target.value)}>
-              <option value="">Not set</option>
-              {filteredCourses.map((course) => (
-                <option key={course.id} value={course.id}>
-                  {course.code} — {course.name}
-                </option>
-              ))}
-            </select>
+            <input
+              type="text"
+              value={
+                profile?.courseCode
+                  ? `${profile.courseCode} — ${profile.courseName}`
+                  : profile?.courseName || 'Assigned by staff'
+              }
+              readOnly
+            />
           </label>
 
           <p className="portal-meta">
-            Your department and program decide which surveys you see. University-wide surveys are
-            always shown.
+            Department and program are set by staff. They decide which surveys you see.
+            University-wide surveys are always shown.
           </p>
 
           <label className="portal-checkbox">
@@ -133,6 +103,10 @@ export default function StudentSettingsPage() {
             Save settings
           </button>
         </form>
+      </section>
+
+      <section className="portal-card portal-form-card">
+        <PasswordChangeForm />
       </section>
     </div>
   );

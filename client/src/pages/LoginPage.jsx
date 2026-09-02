@@ -8,10 +8,6 @@ const TABS = [
   { id: 'staff', label: 'Staff' },
 ];
 
-function currentYearCode() {
-  return String(new Date().getFullYear() % 100).padStart(2, '0');
-}
-
 export default function LoginPage() {
   const navigate = useNavigate();
   const { user, login } = useAuth();
@@ -20,10 +16,6 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
-
-  if (user?.mustChangePassword) {
-    return <Navigate to="/change-password" replace />;
-  }
 
   if (user?.role === 'student') {
     return <Navigate to="/student/dashboard" replace />;
@@ -52,12 +44,6 @@ export default function LoginPage() {
         password,
       });
       login(account);
-
-      if (account.mustChangePassword) {
-        navigate('/change-password');
-        return;
-      }
-
       navigate(account.role === 'staff' ? '/staff/dashboard' : '/student/dashboard');
     } catch (err) {
       setError(err.message || 'Invalid ID or password.');
@@ -67,8 +53,7 @@ export default function LoginPage() {
   }
 
   const isStudent = activeTab === 'student';
-  const yearCode = currentYearCode();
-  const idPlaceholder = isStudent ? `NGU${yearCode}0001S` : `NGU${yearCode}0001F`;
+  const idPlaceholder = isStudent ? 'NGUXXXXXXS' : 'NGUXXXXXXF';
 
   return (
     <section className="page-section">

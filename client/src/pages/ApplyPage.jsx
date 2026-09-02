@@ -1,29 +1,75 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { api } from '../api';
 
-const PROGRAMS = [
-  'Undergraduate',
-  'Postgraduate',
-  'Research / PhD',
-  'Short course',
-];
+const EMPTY_FORM = {
+  fullName: '',
+  email: '',
+  phone: '',
+  departmentId: '',
+  courseId: '',
+  message: '',
+};
 
 export default function ApplyPage() {
-  const [form, setForm] = useState({
-    fullName: '',
-    email: '',
-    phone: '',
-    program: PROGRAMS[0],
-    message: '',
-  });
+  const [form, setForm] = useState(EMPTY_FORM);
+  const [departments, setDepartments] = useState([]);
+  const [courses, setCourses] = useState([]);
+  const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [result, setResult] = useState(null);
+
+  useEffect(() => {
+    api.getDepartments().then(setDepartments).catch(() => {});
+    api.getCourses().then(setCourses).catch(() => {});
+  }, []);
 
   function updateField(field, value) {
     setForm((prev) => ({ ...prev, [field]: value }));
   }
 
-  function handleSubmit(e) {
+  const filteredCourses = form.departmentId
+    ? courses.filter((course) => course.departmentId === Number(form.departmentId))
+    : courses;
+
+  async function handleSubmit(e) {
     e.preventDefault();
-    alert('Application submitted! We will connect this to the backend in a later step.');
+    setError('');
+    setSubmitting(true);
+
+    try {
+      const created = await api.apply({
+        name: form.fullName.trim(),
+        email: form.email.trim(),
+        phone: form.phone.trim(),
+        departmentId: form.departmentId ? Number(form.departmentId) : null,
+        courseId: form.courseId ? Number(form.courseId) : null,
+        message: form.message.trim(),
+      });
+      setResult(created);
+    } catch (err) {
+      setError(err.message || 'Unable to submit application.');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  if (result) {
+    return (
+      <section className="page-section">
+        <div className="container narrow">
+          <p className="eyebrow">Admissions</p>
+          <h1>Application received</h1>
+          <p className="page-intro">
+            Thank you, {result.name}. An authorized staff member will create your student account
+            if your application is accepted.
+          </p>
+          <p className="form-note">
+            Already a student? <Link to="/login">Login here</Link>.
+          </p>
+        </div>
+      </section>
+    );
   }
 
   return (
@@ -37,6 +83,8 @@ export default function ApplyPage() {
         </p>
 
         <form className="form-card" onSubmit={handleSubmit}>
+          {error && <p className="form-error">{error}</p>}
+
           <label>
             Full name
             <input
@@ -70,14 +118,33 @@ export default function ApplyPage() {
           </label>
 
           <label>
-            Program of interest
+            Department
             <select
-              value={form.program}
-              onChange={(e) => updateField('program', e.target.value)}
+              value={form.departmentId}
+              onChange={(e) => {
+                updateField('departmentId', e.target.value);
+                updateField('courseId', '');
+              }}
             >
-              {PROGRAMS.map((program) => (
-                <option key={program} value={program}>
-                  {program}
+              <option value="">Select a department</option>
+              {departments.map((dept) => (
+                <option key={dept.id} value={dept.id}>
+                  {dept.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label>
+            Program
+            <select
+              value={form.courseId}
+              onChange={(e) => updateField('courseId', e.target.value)}
+            >
+              <option value="">Select a program</option>
+              {filteredCourses.map((course) => (
+                <option key={course.id} value={course.id}>
+                  {course.code} — {course.name}
                 </option>
               ))}
             </select>
@@ -93,8 +160,8 @@ export default function ApplyPage() {
             />
           </label>
 
-          <button type="submit" className="btn btn-primary btn-full">
-            Submit application
+          <button type="submit" className="btn btn-primary btn-full" disabled={submitting}>
+            {submitting ? 'Submitting...' : 'Submit application'}
           </button>
         </form>
 

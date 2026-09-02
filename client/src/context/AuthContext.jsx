@@ -7,7 +7,7 @@ function readStoredAuth() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     const parsed = raw ? JSON.parse(raw) : null;
-    if (!parsed?.role || !parsed?.loginId) return null;
+    if (!parsed?.role || !parsed?.loginId || !parsed?.token) return null;
     return parsed;
   } catch {
     return null;
@@ -19,6 +19,7 @@ export function AuthProvider({ children }) {
 
   const value = useMemo(() => {
     function login(account) {
+      const existing = readStoredAuth();
       const nextUser = {
         role: account.role,
         loginId: account.loginId,
@@ -30,7 +31,10 @@ export function AuthProvider({ children }) {
         courseId: account.courseId || null,
         jobTitle: account.jobTitle || '',
         mustChangePassword: Boolean(account.mustChangePassword),
+        isAdmin: Boolean(account.isAdmin),
+        token: account.token || existing?.token || null,
       };
+      if (!nextUser.token) return null;
       localStorage.setItem(STORAGE_KEY, JSON.stringify(nextUser));
       setUser(nextUser);
       return nextUser;
@@ -40,6 +44,7 @@ export function AuthProvider({ children }) {
       user,
       isStudent: user?.role === 'student',
       isStaff: user?.role === 'staff',
+      isAdmin: user?.role === 'staff' && Boolean(user?.isAdmin),
       login,
       loginStudent(account) {
         return login({ ...account, role: 'student' });
