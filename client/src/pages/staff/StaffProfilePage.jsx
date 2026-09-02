@@ -45,6 +45,11 @@ export default function StaffProfilePage() {
           <h3>Account details</h3>
 
           <label>
+            Staff ID
+            <input type="text" value={user?.staffId || user?.loginId || ''} readOnly />
+          </label>
+
+          <label>
             Full name
             <input value={form.name} onChange={(e) => updateField('name', e.target.value)} required />
           </label>

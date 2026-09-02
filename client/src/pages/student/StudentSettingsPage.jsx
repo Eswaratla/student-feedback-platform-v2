@@ -63,6 +63,11 @@ export default function StudentSettingsPage() {
       <section className="portal-card portal-form-card">
         <form onSubmit={handleSubmit} className="portal-form">
           <label>
+            Student ID
+            <input type="text" value={user.studentId || user.loginId || ''} readOnly />
+          </label>
+
+          <label>
             Display name
             <input
               type="text"

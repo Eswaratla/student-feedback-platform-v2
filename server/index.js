@@ -25,6 +25,9 @@ import {
   getUniversityReport,
   listAllResponses,
   buildExportRows,
+  authenticateUser,
+  changeUserPassword,
+  getAuthAccountCounts,
 } from './db.js';
 import { rowsToPdfBuffer, rowsToWordHtml } from './exportFormats.js';
 import { generateAiInsights } from './aiInsights.js';
@@ -42,7 +45,34 @@ function parseSurveyId(value) {
 }
 
 app.get('/api/health', (_req, res) => {
-  res.json({ status: 'ok', message: 'NexGen University API is running', stack: 'Node.js + Express' });
+  res.json({
+    status: 'ok',
+    message: 'NexGen University API is running',
+    stack: 'Node.js + Express',
+    accounts: getAuthAccountCounts(),
+  });
+});
+
+app.get('/api/auth/status', (_req, res) => {
+  res.json(getAuthAccountCounts());
+});
+
+app.post('/api/auth/login', (req, res) => {
+  try {
+    const { role, loginId, password } = req.body || {};
+    res.json(authenticateUser(role, loginId, password));
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message });
+  }
+});
+
+app.post('/api/auth/change-password', (req, res) => {
+  try {
+    const { role, loginId, currentPassword, newPassword } = req.body || {};
+    res.json(changeUserPassword(role, loginId, currentPassword, newPassword));
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message });
+  }
 });
 
 app.get('/api/dashboard', (_req, res) => res.json(getDashboardStats()));

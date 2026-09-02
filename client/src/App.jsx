@@ -4,6 +4,7 @@ import HomePage from './pages/HomePage';
 import LoginPage from './pages/LoginPage';
 import AboutPage from './pages/AboutPage';
 import ApplyPage from './pages/ApplyPage';
+import ChangePasswordPage from './pages/ChangePasswordPage';
 import StudentPortalLayout from './layouts/StudentPortalLayout';
 import StaffPortalLayout from './layouts/StaffPortalLayout';
 import StudentDashboardPage from './pages/student/StudentDashboardPage';
@@ -45,6 +46,7 @@ function PublicLayout() {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/about" element={<AboutPage />} />
           <Route path="/apply" element={<ApplyPage />} />
+          <Route path="/change-password" element={<ChangePasswordPage />} />
         </Routes>
       </main>
       <footer className="site-footer">

@@ -46,6 +46,10 @@ export const api = {
   getUniversityReport: () => request('/api/reports/university'),
   getAiInsights: () => request('/api/reports/ai-insights'),
   getAllResponses: () => request('/api/responses'),
+  login: (data) => request('/api/auth/login', { method: 'POST', body: JSON.stringify(data) }),
+  changePassword: (data) =>
+    request('/api/auth/change-password', { method: 'POST', body: JSON.stringify(data) }),
+  getAuthStatus: () => request('/api/auth/status'),
   getStudentSurveys: (email) => request(`/api/students/${encodeURIComponent(email)}/surveys`),
   getStudentResponses: (email) => request(`/api/students/${encodeURIComponent(email)}/responses`),
   getStudentProfile: (email) => request(`/api/students/${encodeURIComponent(email)}/profile`),

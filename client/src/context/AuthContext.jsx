@@ -6,7 +6,9 @@ const STORAGE_KEY = 'nexgen_auth';
 function readStoredAuth() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : null;
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (!parsed?.role || !parsed?.loginId) return null;
+    return parsed;
   } catch {
     return null;
   }
@@ -16,8 +18,19 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(readStoredAuth);
 
   const value = useMemo(() => {
-    function login({ role, email, name }) {
-      const nextUser = { role, email, name };
+    function login(account) {
+      const nextUser = {
+        role: account.role,
+        loginId: account.loginId,
+        studentId: account.studentId || null,
+        staffId: account.staffId || null,
+        email: account.email,
+        name: account.name,
+        departmentId: account.departmentId || null,
+        courseId: account.courseId || null,
+        jobTitle: account.jobTitle || '',
+        mustChangePassword: Boolean(account.mustChangePassword),
+      };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(nextUser));
       setUser(nextUser);
       return nextUser;
@@ -28,11 +41,11 @@ export function AuthProvider({ children }) {
       isStudent: user?.role === 'student',
       isStaff: user?.role === 'staff',
       login,
-      loginStudent({ email, name }) {
-        return login({ role: 'student', email, name });
+      loginStudent(account) {
+        return login({ ...account, role: 'student' });
       },
-      loginStaff({ email, name }) {
-        return login({ role: 'staff', email, name });
+      loginStaff(account) {
+        return login({ ...account, role: 'staff' });
       },
       updateProfile(updates) {
         if (!user) return null;

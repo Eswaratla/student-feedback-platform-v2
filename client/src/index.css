@@ -437,6 +437,11 @@ textarea:focus {
   border-color: var(--primary);
 }
 
+input:read-only {
+  background: #f3f4f6;
+  color: var(--muted);
+}
+
 .btn-full {
   width: 100%;
 }
@@ -446,34 +451,31 @@ textarea:focus {
   color: var(--muted);
 }
 
-.form-note a {
+.form-note a,
+.form-note .text-link {
   color: var(--primary);
   font-weight: 600;
 }
 
-.demo-login-box {
+.text-link {
+  border: none;
+  padding: 0;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+
+.password-notice {
   background: #f0f4ff;
   border: 1px solid #c7d7fe;
   border-radius: 10px;
   padding: 1rem 1.1rem;
   margin-bottom: 1rem;
-}
-
-.demo-login-box strong {
-  display: block;
-  color: var(--primary);
-  margin-bottom: 0.5rem;
-}
-
-.demo-login-box p {
-  margin: 0.2rem 0;
   color: var(--muted);
-  font-size: 0.92rem;
 }
 
-.demo-login-box span {
+.password-notice strong {
   color: var(--text);
-  font-weight: 600;
 }
 
 .form-error {
