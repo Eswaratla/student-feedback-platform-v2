@@ -21,6 +21,10 @@ import StaffResponsesPage from './pages/staff/StaffResponsesPage';
 import StaffAreaReportPage from './pages/staff/StaffAreaReportPage';
 import StaffReportDetailPage from './pages/staff/StaffReportDetailPage';
 import StaffProfilePage from './pages/staff/StaffProfilePage';
+import StaffStudentsPage from './pages/staff/StaffStudentsPage';
+import StaffStudentFormPage from './pages/staff/StaffStudentFormPage';
+import StaffAccountsPage from './pages/staff/StaffAccountsPage';
+import StaffApplicationsPage from './pages/staff/StaffApplicationsPage';
 
 function RedirectDepartmentToReport() {
   const { id } = useParams();
@@ -85,6 +89,11 @@ export default function App() {
       <Route path="/staff/*" element={<StaffPortalLayout />}>
         <Route index element={<Navigate to="dashboard" replace />} />
         <Route path="dashboard" element={<StaffDashboardPage />} />
+        <Route path="students" element={<StaffStudentsPage />} />
+        <Route path="students/new" element={<StaffStudentFormPage />} />
+        <Route path="students/:studentId" element={<StaffStudentFormPage />} />
+        <Route path="applications" element={<StaffApplicationsPage />} />
+        <Route path="accounts" element={<StaffAccountsPage />} />
         <Route path="departments" element={<StaffDepartmentsPage />} />
         <Route path="departments/:id" element={<RedirectDepartmentToReport />} />
         <Route path="courses" element={<Navigate to="/staff/reports" replace />} />

@@ -10,7 +10,7 @@ This folder is the **backend** for NexGen University.
 ## What it does
 
 - Runs the API on **http://localhost:3001**
-- Handles login, applications, and data (to be added in later steps)
+- Handles login, applications, surveys, and feedback data
 - Serves JSON endpoints under `/api/*`
 
 ## Commands

@@ -16,15 +16,6 @@ export default function ChangePasswordPage() {
     return <Navigate to="/login" replace />;
   }
 
-  if (!user.mustChangePassword) {
-    return (
-      <Navigate
-        to={user.role === 'staff' ? '/staff/dashboard' : '/student/dashboard'}
-        replace
-      />
-    );
-  }
-
   async function handleSubmit(e) {
     e.preventDefault();
     setError('');
@@ -42,7 +33,7 @@ export default function ChangePasswordPage() {
         currentPassword,
         newPassword,
       });
-      login(account);
+      login({ ...account, token: user.token });
       navigate(account.role === 'staff' ? '/staff/dashboard' : '/student/dashboard');
     } catch (err) {
       setError(err.message || 'Unable to update password.');
@@ -57,7 +48,7 @@ export default function ChangePasswordPage() {
         <p className="eyebrow">Account security</p>
         <h1>Create a new password</h1>
         <p className="page-intro">
-          For security, you must replace your initial password before using the portal.
+          Choose a password that only you know. You can also do this later from Settings.
         </p>
 
         <div className="password-notice">

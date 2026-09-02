@@ -1,6 +1,7 @@
 import { Navigate, Outlet, useNavigate } from 'react-router-dom';
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { api } from '../api';
 import Logo from '../components/Logo';
 
 const NAV_ITEMS = [
@@ -18,11 +19,12 @@ export default function StudentPortalLayout() {
     return <Navigate to="/login" replace />;
   }
 
-  if (user.mustChangePassword) {
-    return <Navigate to="/change-password" replace />;
-  }
-
-  function handleLogout() {
+  async function handleLogout() {
+    try {
+      await api.logout();
+    } catch {
+      // Clear the local session even if the API is already signed out.
+    }
     logout();
     navigate('/login');
   }

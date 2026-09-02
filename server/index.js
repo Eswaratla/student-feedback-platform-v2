@@ -18,7 +18,6 @@ import {
   submitResponse,
   getStudentResponses,
   getStudentSurveyStatus,
-  getStudentProfile,
   saveStudentProfile,
   getDashboardStats,
   getSurveyReport,
@@ -28,7 +27,22 @@ import {
   authenticateUser,
   changeUserPassword,
   getAuthAccountCounts,
+  applyAsStudent,
+  getStaffActor,
+  createStudentAccount,
+  listManagedStudents,
+  getManagedStudent,
+  updateManagedStudent,
+  setStudentAccountStatus,
+  createStaffAccount,
+  listStaffAccounts,
+  setStaffAccountStatus,
+  listApplications,
+  resetStudentPassword,
+  resetStaffPassword,
+  getStudentProfileByStudentId,
 } from './db.js';
+import { createSession, destroySession, getSession, readToken } from './sessions.js';
 import { rowsToPdfBuffer, rowsToWordHtml } from './exportFormats.js';
 import { generateAiInsights } from './aiInsights.js';
 
@@ -44,32 +58,201 @@ function parseSurveyId(value) {
   return id;
 }
 
+function requireSession(req) {
+  const session = getSession(readToken(req));
+  if (!session) {
+    const error = new Error('Sign in is required.');
+    error.status = 401;
+    throw error;
+  }
+  return session;
+}
+
+function requireStaff(req) {
+  const session = requireSession(req);
+  if (session.role !== 'staff') {
+    const error = new Error('Staff authentication is required.');
+    error.status = 403;
+    throw error;
+  }
+  return getStaffActor(session.loginId);
+}
+
+function requireAdmin(req) {
+  const staff = requireStaff(req);
+  if (!staff.isAdmin) {
+    const error = new Error('Administrator access is required.');
+    error.status = 403;
+    throw error;
+  }
+  return staff;
+}
+
+function requireStudent(req) {
+  const session = requireSession(req);
+  if (session.role !== 'student') {
+    const error = new Error('Student authentication is required.');
+    error.status = 403;
+    throw error;
+  }
+  return session;
+}
+
 app.get('/api/health', (_req, res) => {
   res.json({
     status: 'ok',
     message: 'NexGen University API is running',
     stack: 'Node.js + Express',
-    accounts: getAuthAccountCounts(),
   });
 });
 
-app.get('/api/auth/status', (_req, res) => {
-  res.json(getAuthAccountCounts());
-});
-
-app.post('/api/auth/login', (req, res) => {
+app.get('/api/auth/status', (req, res) => {
   try {
-    const { role, loginId, password } = req.body || {};
-    res.json(authenticateUser(role, loginId, password));
+    requireStaff(req);
+    res.json(getAuthAccountCounts());
   } catch (error) {
     res.status(error.status || 500).json({ error: error.message });
   }
 });
 
+app.post('/api/auth/login', (req, res) => {
+  try {
+    const { role, loginId, password } = req.body || {};
+    const account = authenticateUser(role, loginId, password);
+    res.json({ ...account, token: createSession(account) });
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message });
+  }
+});
+
+app.post('/api/auth/logout', (req, res) => {
+  destroySession(readToken(req));
+  res.status(204).send();
+});
+
 app.post('/api/auth/change-password', (req, res) => {
   try {
-    const { role, loginId, currentPassword, newPassword } = req.body || {};
-    res.json(changeUserPassword(role, loginId, currentPassword, newPassword));
+    const session = requireSession(req);
+    const { currentPassword, newPassword } = req.body || {};
+    res.json(changeUserPassword(session.role, session.loginId, currentPassword, newPassword));
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message });
+  }
+});
+
+app.post('/api/auth/apply', (req, res) => {
+  try {
+    const { name, email, phone, departmentId, courseId, message } = req.body || {};
+    res.status(201).json(applyAsStudent({ name, email, phone, departmentId, courseId, message }));
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message });
+  }
+});
+
+app.get('/api/staff/students', (req, res) => {
+  try {
+    requireStaff(req);
+    res.json(
+      listManagedStudents({
+        query: req.query.q || '',
+        departmentId: req.query.departmentId || null,
+        courseId: req.query.courseId || null,
+        academicYear: req.query.academicYear || '',
+        yearLevel: req.query.yearLevel || '',
+        semester: req.query.semester || '',
+        accountStatus: req.query.accountStatus || '',
+      })
+    );
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message });
+  }
+});
+
+app.post('/api/staff/students', (req, res) => {
+  try {
+    requireStaff(req);
+    res.status(201).json(createStudentAccount(req.body || {}));
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message });
+  }
+});
+
+app.get('/api/staff/students/:studentId', (req, res) => {
+  try {
+    requireStaff(req);
+    res.json(getManagedStudent(req.params.studentId));
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message });
+  }
+});
+
+app.put('/api/staff/students/:studentId', (req, res) => {
+  try {
+    requireStaff(req);
+    res.json(updateManagedStudent(req.params.studentId, req.body || {}));
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message });
+  }
+});
+
+app.patch('/api/staff/students/:studentId/status', (req, res) => {
+  try {
+    requireStaff(req);
+    res.json(setStudentAccountStatus(req.params.studentId, req.body?.accountStatus));
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message });
+  }
+});
+
+app.get('/api/admin/staff', (req, res) => {
+  try {
+    requireAdmin(req);
+    res.json(listStaffAccounts());
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message });
+  }
+});
+
+app.post('/api/admin/staff', (req, res) => {
+  try {
+    requireAdmin(req);
+    res.status(201).json(createStaffAccount(req.body || {}));
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message });
+  }
+});
+
+app.patch('/api/admin/staff/:staffId/status', (req, res) => {
+  try {
+    const actor = requireAdmin(req);
+    res.json(setStaffAccountStatus(req.params.staffId, req.body?.accountStatus, actor.staffId));
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message });
+  }
+});
+
+app.post('/api/staff/students/:studentId/reset-password', (req, res) => {
+  try {
+    requireStaff(req);
+    res.json(resetStudentPassword(req.params.studentId));
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message });
+  }
+});
+
+app.post('/api/admin/staff/:staffId/reset-password', (req, res) => {
+  try {
+    const actor = requireAdmin(req);
+    res.json(resetStaffPassword(req.params.staffId, actor.staffId));
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message });
+  }
+});
+
+app.get('/api/staff/applications', (req, res) => {
+  try {
+    requireStaff(req);
+    res.json(listApplications());
   } catch (error) {
     res.status(error.status || 500).json({ error: error.message });
   }
@@ -215,18 +398,22 @@ app.get('/api/students/:email/responses', (req, res) => {
 });
 
 app.get('/api/students/:email/profile', (req, res) => {
-  res.json(getStudentProfile(req.params.email));
+  try {
+    const session = requireStudent(req);
+    res.json(getStudentProfileByStudentId(session.loginId));
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message });
+  }
 });
 
 app.put('/api/students/:email/profile', (req, res) => {
-  const { name, departmentId, courseId } = req.body;
-  res.json(
-    saveStudentProfile(req.params.email, {
-      name,
-      departmentId: departmentId ? Number(departmentId) : null,
-      courseId: courseId ? Number(courseId) : null,
-    })
-  );
+  try {
+    const session = requireStudent(req);
+    const profile = getStudentProfileByStudentId(session.loginId);
+    res.json(saveStudentProfile(profile.email, { name: req.body?.name }));
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message });
+  }
 });
 
 app.post('/api/surveys/:id/responses', (req, res) => {

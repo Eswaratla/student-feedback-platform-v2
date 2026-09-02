@@ -57,7 +57,7 @@ npm run dev:server
 |------|--------|-------------|
 | 1 | Done | Project setup |
 | 2 | Done | Backend basics (Node.js + Express) |
-| 3 | — | Database |
-| 4 | — | API routes (login, apply) |
+| 3 | Done | Database |
+| 4 | Done | API routes (login, apply) |
 | 5 | Done | Frontend (React + Vite) |
 | 6 | Done | First pages (Home, Login, About, Apply) |

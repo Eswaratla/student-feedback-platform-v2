@@ -1,28 +1,32 @@
 import { Navigate, Outlet, useNavigate } from 'react-router-dom';
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { api } from '../api';
 import Logo from '../components/Logo';
 
 const MAIN_NAV = [
   { to: '/staff/dashboard', label: 'Dashboard', end: true },
+  { to: '/staff/students', label: 'Students' },
+  { to: '/staff/applications', label: 'Applications' },
   { to: '/staff/surveys', label: 'Surveys' },
   { to: '/staff/reports', label: 'Reports' },
   { to: '/staff/profile', label: 'Profile settings' },
 ];
 
 export default function StaffPortalLayout() {
-  const { user, logout } = useAuth();
+  const { user, logout, isAdmin } = useAuth();
   const navigate = useNavigate();
 
   if (!user || user.role !== 'staff') {
     return <Navigate to="/login" replace />;
   }
 
-  if (user.mustChangePassword) {
-    return <Navigate to="/change-password" replace />;
-  }
-
-  function handleLogout() {
+  async function handleLogout() {
+    try {
+      await api.logout();
+    } catch {
+      // Clear the local session even if the API is already signed out.
+    }
     logout();
     navigate('/login');
   }
@@ -49,6 +53,14 @@ export default function StaffPortalLayout() {
               {item.label}
             </NavLink>
           ))}
+          {isAdmin && (
+            <NavLink
+              to="/staff/accounts"
+              className={({ isActive }) => `portal-nav-link ${isActive ? 'active' : ''}`}
+            >
+              Staff accounts
+            </NavLink>
+          )}
 
           <button type="button" className="portal-nav-link portal-logout" onClick={handleLogout}>
             Logout

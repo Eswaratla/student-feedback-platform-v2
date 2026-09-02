@@ -478,6 +478,20 @@ input:read-only {
   color: var(--text);
 }
 
+.form-success {
+  margin: 0;
+  padding: 0.75rem 0.9rem;
+  border-radius: 8px;
+  background: #ecfdf3;
+  border: 1px solid #abefc6;
+  color: #027a48;
+  font-size: 0.95rem;
+}
+
+.apply-success-card {
+  gap: 1rem;
+}
+
 .form-error {
   margin: 0;
   padding: 0.75rem 0.9rem;
