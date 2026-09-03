@@ -428,6 +428,6 @@ app.post('/api/surveys/:id/responses', (req, res) => {
 
 await initDb();
 
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`NexGen University API (Node.js) running on http://localhost:${PORT}`);
 });
