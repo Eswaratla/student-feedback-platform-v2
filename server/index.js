@@ -149,6 +149,15 @@ app.post('/api/auth/apply', (req, res) => {
   }
 });
 
+app.get('/api/staff/surveys', (req, res) => {
+  try {
+    requireStaff(req);
+    res.json(listSurveys());
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message });
+  }
+});
+
 app.get('/api/staff/students', (req, res) => {
   try {
     requireStaff(req);

@@ -58,11 +58,11 @@ export default function StaffSurveysPage() {
     try {
       setLoading(true);
       const [surveyList, departmentList, courseList] = await Promise.all([
-        api.getSurveys(),
+        api.listStaffSurveys(),
         api.getDepartments(),
         api.getCourses(),
       ]);
-      setSurveys(surveyList);
+      setSurveys(Array.isArray(surveyList) ? surveyList : []);
       setDepartments(departmentList);
       setCourses(courseList);
       setError('');
@@ -100,15 +100,11 @@ export default function StaffSurveysPage() {
     ? courses.filter((course) => course.departmentId === Number(departmentId))
     : courses;
 
-  const studentSurveys = surveys.filter((survey) => !survey.staffOnly);
-
   const visibleSurveys = useMemo(() => {
     const courseDepartment = new Map(courses.map((course) => [course.id, course.departmentId]));
 
-    return studentSurveys.filter((survey) => {
-      if (courseId || departmentId) {
-        if (!survey.isActive) return false;
-      }
+    return surveys.filter((survey) => {
+      if (!survey.isActive) return false;
 
       if (courseId) {
         return survey.courseId === Number(courseId);
@@ -124,7 +120,7 @@ export default function StaffSurveysPage() {
 
       return true;
     });
-  }, [studentSurveys, courses, departmentId, courseId]);
+  }, [surveys, courses, departmentId, courseId]);
 
   const hasFilters = Boolean(departmentId || courseId);
   const emptyMessage = hasFilters

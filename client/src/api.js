@@ -48,6 +48,7 @@ export const api = {
   getCourse: (id) => request(`/api/courses/${id}`),
   getCourseSummary: (id) => request(`/api/courses/${id}/summary`),
   getSurveys: (activeOnly = false) => request(`/api/surveys${activeOnly ? '?active=true' : ''}`),
+  listStaffSurveys: () => request('/api/staff/surveys'),
   getSurvey: (id) => request(`/api/surveys/${id}`),
   createSurvey: (data) => request('/api/surveys', { method: 'POST', body: JSON.stringify(data) }),
   updateSurvey: (id, data) => request(`/api/surveys/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
