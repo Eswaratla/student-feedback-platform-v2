@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 import bcrypt from 'bcryptjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DB_PATH = path.join(__dirname, 'feedback.db');
+const DB_PATH = path.join(__dirname, 'nexgen.db');
 
 const BCRYPT_ROUNDS = 10;
 const STUDENT_ID_RE = /^NGU\d{2}\d{4}S$/;
