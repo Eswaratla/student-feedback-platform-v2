@@ -8,6 +8,25 @@ function responderLabel(item) {
   return item.studentName || 'Student';
 }
 
+function formatAnswerValue(answer) {
+  if (answer.questionType === 'rating') {
+    if (answer.answerRating === null || answer.answerRating === undefined) {
+      return '';
+    }
+    return `${answer.answerRating} / 5`;
+  }
+
+  if (answer.questionType === 'text' || answer.questionType === 'choice') {
+    return answer.answerText ?? '';
+  }
+
+  if (answer.answerRating !== null && answer.answerRating !== undefined) {
+    return `${answer.answerRating} / 5`;
+  }
+
+  return answer.answerText ?? '';
+}
+
 export default function StaffResponsesPage() {
   const [responses, setResponses] = useState([]);
   const [error, setError] = useState('');
@@ -72,7 +91,7 @@ export default function StaffResponsesPage() {
                   {item.answers?.map((answer, index) => (
                     <p key={index}>
                       <strong>{answer.questionText}: </strong>
-                      {answer.answerRating ?? answer.answerText}
+                      {formatAnswerValue(answer)}
                     </p>
                   ))}
                 </div>
