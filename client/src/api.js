@@ -32,10 +32,36 @@ async function request(path, options = {}) {
   return response.json();
 }
 
-export function downloadExport(type, id = null, format = 'pdf') {
+export async function downloadExport(type, id = null, format = 'pdf') {
   const params = new URLSearchParams({ format });
   if (id) params.set('id', id);
-  window.open(`/api/export/${type}?${params}`, '_blank');
+  const response = await fetch(`/api/export/${type}?${params}`, {
+    headers: authHeaders(),
+  });
+
+  if (!response.ok) {
+    let message = 'Download failed';
+    try {
+      const data = await response.json();
+      message = data.error || message;
+    } catch {
+      message = response.statusText || message;
+    }
+    throw new Error(message);
+  }
+
+  const blob = await response.blob();
+  const disposition = response.headers.get('Content-Disposition') || '';
+  const match = disposition.match(/filename="?([^"]+)"?/);
+  const filename = match?.[1] || `${type}-report.${format === 'word' ? 'doc' : 'pdf'}`;
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 export const api = {

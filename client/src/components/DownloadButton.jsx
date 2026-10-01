@@ -8,6 +8,7 @@ export default function DownloadButton({
   children = 'Download',
 }) {
   const [open, setOpen] = useState(false);
+  const [error, setError] = useState('');
   const wrapRef = useRef(null);
 
   useEffect(() => {
@@ -23,9 +24,14 @@ export default function DownloadButton({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [open]);
 
-  function handleFormat(format) {
-    downloadExport(type, id, format);
+  async function handleFormat(format) {
     setOpen(false);
+    setError('');
+    try {
+      await downloadExport(type, id, format);
+    } catch (err) {
+      setError(err.message || 'Download failed');
+    }
   }
 
   return (
@@ -44,6 +50,7 @@ export default function DownloadButton({
           </button>
         </div>
       )}
+      {error && <p className="form-error download-error">{error}</p>}
     </div>
   );
 }

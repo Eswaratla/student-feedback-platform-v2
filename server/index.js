@@ -43,7 +43,7 @@ import {
   getStudentProfileByStudentId,
 } from './db.js';
 import { createSession, destroySession, getSession, readToken } from './sessions.js';
-import { rowsToPdfBuffer, rowsToWordHtml } from './exportFormats.js';
+import { renderStaffPdf, rowsToWordHtml } from './exportFormats.js';
 import { generateAiInsights } from './aiInsights.js';
 
 const app = express();
@@ -355,10 +355,9 @@ app.delete('/api/questions/:id', (req, res) => {
 
 app.get('/api/reports/university', (_req, res) => res.json(getUniversityReport()));
 
-app.get('/api/reports/ai-insights', async (_req, res) => {
+app.get('/api/reports/ai-insights', (_req, res) => {
   try {
-    const insights = await generateAiInsights(getUniversityReport());
-    res.json(insights);
+    res.json(generateAiInsights());
   } catch (error) {
     res.status(500).json({ error: error.message || 'Unable to generate AI insights.' });
   }
@@ -370,23 +369,32 @@ app.get('/api/export/:type', async (req, res) => {
   const { type } = req.params;
   const id = req.query.id ? Number(req.query.id) : null;
   const format = (req.query.format || 'pdf').toLowerCase();
-  const rows = buildExportRows(type, id);
-
-  if (!rows.length) return res.status(404).json({ error: 'Nothing to download.' });
-
-  const title = `${type}-report`;
   const filenameBase = `${type}-report${id ? `-${id}` : ''}`;
 
   try {
+    const staff = requireStaff(req);
+    if (id && type === 'survey' && !getSurvey(id)) {
+      return res.status(404).json({ error: 'Nothing to download.' });
+    }
+    if (id && type === 'department' && !getDepartment(id)) {
+      return res.status(404).json({ error: 'Nothing to download.' });
+    }
+    if (id && type === 'course' && !getCourse(id)) {
+      return res.status(404).json({ error: 'Nothing to download.' });
+    }
+
     if (format === 'word') {
-      const html = rowsToWordHtml(rows, title);
+      const rows = buildExportRows(type, id);
+      if (!rows.length) return res.status(404).json({ error: 'Nothing to download.' });
+      const html = rowsToWordHtml(rows, `${type}-report`, staff);
       res.setHeader('Content-Type', 'application/msword');
       res.setHeader('Content-Disposition', `attachment; filename="${filenameBase}.doc"`);
       return res.send(html);
     }
 
     if (format === 'pdf') {
-      const pdf = await rowsToPdfBuffer(rows, title);
+      const pdf = await renderStaffPdf({ type, id, staff });
+      if (!pdf) return res.status(404).json({ error: 'Nothing to download.' });
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', `attachment; filename="${filenameBase}.pdf"`);
       return res.send(pdf);
@@ -394,7 +402,7 @@ app.get('/api/export/:type', async (req, res) => {
 
     return res.status(400).json({ error: 'Unsupported format. Use word or pdf.' });
   } catch (error) {
-    res.status(500).json({ error: error.message || 'Download failed.' });
+    res.status(error.status || 500).json({ error: error.message || 'Download failed.' });
   }
 });
 

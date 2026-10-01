@@ -1,225 +1,480 @@
-const POSITIVE_WORDS = ['good', 'great', 'excellent', 'helpful', 'supportive', 'clear', 'enjoy', 'love', 'best'];
-const NEGATIVE_WORDS = ['poor', 'bad', 'difficult', 'confusing', 'slow', 'lack', 'issue', 'problem', 'improve', 'better'];
+import { getReportRecords } from './db.js';
 
-function tokenize(text) {
-  return String(text || '')
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, ' ')
-    .split(/\s+/)
-    .filter((word) => word.length > 3);
+const THEME_RULES = [
+  {
+    name: 'Parking / Facilities',
+    terms: ['parking', 'car park', 'visitor bay', 'visitor bays'],
+  },
+  {
+    name: 'Library and learning resources',
+    terms: ['library', 'textbook', 'textbooks', 'study room', 'study rooms', 'reading', 'readings'],
+  },
+  {
+    name: 'Assessment feedback',
+    terms: ['feedback'],
+  },
+  {
+    name: 'Exams and assignments',
+    terms: ['exam', 'exams', 'assignment', 'assignments', 'due date', 'osce'],
+  },
+  {
+    name: 'Teaching and tutorials',
+    terms: ['tutorial', 'tutorials', 'lecture', 'lectures', 'workshop', 'workshops', 'seminar', 'seminars', 'tutor', 'tutors'],
+  },
+  {
+    name: 'Clinical placements and skills',
+    terms: ['placement', 'placements', 'ward', 'wards', 'clinical', 'handover', 'handovers', 'bedside', 'simulation', 'simulations'],
+  },
+  {
+    name: 'Group work',
+    terms: ['group', 'groups'],
+  },
+  {
+    name: 'Timetables and communication',
+    terms: ['timetable', 'timetables', 'roster', 'rosters', 'email', 'emails'],
+  },
+  {
+    name: 'Student support and advising',
+    terms: [
+      { text: 'advis', prefix: true },
+      'appointment',
+      'appointments',
+      { text: 'counsel', prefix: true },
+      'student service',
+      'student services',
+      { text: 'enrol', prefix: true },
+      'office hour',
+      'office hours',
+    ],
+  },
+  {
+    name: 'Learning systems',
+    terms: ['software', 'portal', 'database', 'learning platform', 'unit site', 'unit sites', 'off-campus'],
+  },
+];
+
+const POSITIVE_CUES = [
+  'useful',
+  'clear',
+  'helpful',
+  'excellent',
+  'well run',
+  'well supervised',
+  'welcoming',
+  'specific',
+  'quick',
+  'organised',
+  'organized',
+  'realistic',
+  'punctual',
+  'straightforward',
+  'fair',
+  'valuable',
+  'strongest',
+  'willing',
+  'kind',
+  'good',
+];
+
+const CONCERN_CUES = [
+  'would help',
+  'difficult',
+  'hard to',
+  'confusing',
+  'confused',
+  'too short',
+  'too large',
+  'not enough',
+  'only the mark',
+  'only a number',
+  'waitlist',
+  'wait time',
+  'late',
+  'expired',
+  'rejected',
+  'poorly',
+  'without notice',
+  'night before',
+  'cancelled',
+  'canceled',
+  'bounces',
+  'did not',
+  'does not',
+  'not available',
+  'out of paper',
+  'rang out',
+  'drops out',
+  'thinner',
+  'no station',
+  'hard',
+];
+
+function termPattern(term) {
+  const text = typeof term === 'string' ? term : term.text;
+  const prefix = typeof term === 'object' && term.prefix;
+  const escaped = text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
+  const end = prefix ? '' : '(?:$|[^a-z0-9])';
+  return new RegExp(`(?:^|[^a-z0-9])${escaped}${end}`, 'i');
 }
 
-function extractThemes(textResponses) {
-  const counts = {};
-  for (const text of textResponses) {
-    for (const word of tokenize(text)) {
-      if (POSITIVE_WORDS.includes(word) || NEGATIVE_WORDS.includes(word)) continue;
-      counts[word] = (counts[word] || 0) + 1;
-    }
-  }
+const THEME_MATCHERS = THEME_RULES.map((rule) => ({
+  name: rule.name,
+  patterns: rule.terms.map(termPattern),
+}));
 
-  return Object.entries(counts)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5)
-    .map(([word]) => word);
+const POSITIVE_PATTERNS = POSITIVE_CUES.map((cue) => termPattern(cue));
+const CONCERN_PATTERNS = CONCERN_CUES.map((cue) => termPattern(cue === 'hard' ? { text: 'hard', prefix: false } : cue));
+
+function matchesAny(text, patterns) {
+  return patterns.some((pattern) => pattern.test(text));
 }
 
-function estimateSentiment(textResponses) {
-  if (!textResponses.length) return 'neutral';
-
-  let score = 0;
-  for (const text of textResponses) {
-    const words = tokenize(text);
-    for (const word of words) {
-      if (POSITIVE_WORDS.includes(word)) score += 1;
-      if (NEGATIVE_WORDS.includes(word)) score -= 1;
-    }
-  }
-
-  if (score > 0) return 'positive';
-  if (score < 0) return 'mixed';
-  return 'neutral';
-}
-
-export function buildReportContext(report) {
-  const textResponses = [];
-  const surveySummaries = [];
-
-  for (const surveyReport of report.surveys || []) {
-    const ratings = [];
-    for (const question of surveyReport.questionSummaries || []) {
-      if (question.summaryType === 'rating' && question.averageRating) {
-        ratings.push(question.averageRating);
-      }
-      if (question.summaryType === 'text') {
-        textResponses.push(...question.textResponses.map((item) => item.text));
-      }
-    }
-
-    surveySummaries.push({
-      title: surveyReport.survey.title,
-      department: surveyReport.survey.departmentName || 'University-wide',
-      responses: surveyReport.totalResponses,
-      averageRating: ratings.length
-        ? Math.round((ratings.reduce((sum, value) => sum + value, 0) / ratings.length) * 10) / 10
-        : 0,
-    });
-  }
-
+function polarity(text) {
   return {
-    totals: {
-      departments: report.totalDepartments,
-      courses: report.totalCourses,
-      responses: report.totalResponses,
-      averageRating: report.averageRating || 0,
-      uniqueStudents: report.uniqueStudents || 0,
-    },
-    departments: (report.departments || []).map((dept) => ({
-      name: dept.name,
-      responses: dept.responseCount,
-      averageRating: dept.averageRating || 0,
-    })),
-    surveys: surveySummaries,
-    trend: report.responseTrend || [],
-    textResponses: textResponses.slice(0, 40),
-    sentiment: estimateSentiment(textResponses),
-    themes: extractThemes(textResponses),
+    positive: matchesAny(text, POSITIVE_PATTERNS),
+    concern: matchesAny(text, CONCERN_PATTERNS),
   };
 }
 
-function generateLocalInsights(context) {
-  const { totals, departments, trend, themes, sentiment, textResponses } = context;
+function excerpt(text, max = 160) {
+  const clean = String(text || '').replace(/\s+/g, ' ').trim();
+  if (clean.length <= max) return clean;
+  return `${clean.slice(0, max).replace(/\s+\S*$/, '')}…`;
+}
 
-  if (!totals.responses) {
+function fragments(text) {
+  return String(text || '')
+    .split(/\s+but\s+|(?<=[.!?])\s+/i)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function bestFragment(comments, patterns, want) {
+  const candidates = [];
+  for (const comment of comments) {
+    for (const part of fragments(comment.text)) {
+      if (!matchesAny(part, patterns)) continue;
+      candidates.push({ part, tone: polarity(part) });
+    }
+  }
+  if (want === 'any') return excerpt(candidates[0]?.part || comments[0]?.text || '');
+  const preferred = candidates.find((item) => (
+    want === 'positive'
+      ? item.tone.positive && !item.tone.concern
+      : item.tone.concern && !item.tone.positive
+  ))
+    || candidates.find((item) => (want === 'positive' ? item.tone.positive : item.tone.concern))
+    || candidates[0];
+  return excerpt(preferred?.part || comments[0]?.text || '');
+}
+
+function round1(value) {
+  return Math.round(value * 10) / 10;
+}
+
+function programName(response) {
+  const department = response.department_name || null;
+  const program = response.course_code && response.course_name
+    ? `${response.course_code} ${response.course_name}`
+    : response.course_name || response.course_code || null;
+  if (!department && !program) return 'Not specified';
+  if (!program) return department;
+  if (!department) return program;
+  return `${department} — ${program}`;
+}
+
+function formatDay(value) {
+  if (!value) return null;
+  const parsed = new Date(String(value).includes('T') ? value : `${String(value).replace(' ', 'T')}Z`);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toLocaleDateString('en-AU', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
+}
+
+function buildThemes(comments) {
+  return THEME_MATCHERS.map((theme) => {
+    const matched = comments.filter((comment) => matchesAny(comment.text, theme.patterns));
+    const responseIds = new Set(matched.map((comment) => comment.responseId));
+    const positive = matched.filter((comment) => polarity(comment.text).positive);
+    const concern = matched.filter((comment) => polarity(comment.text).concern);
     return {
-      summary:
-        'There is not enough student feedback yet to produce strong AI insights. Activate department surveys and encourage students to respond so trends can be analysed.',
-      themes: ['Awaiting first responses', 'Survey coverage ready', 'No rating trend yet'],
-      recommendations: [
-        'Share department feedback links with students this week.',
-        'Set closing dates on active surveys to improve completion rates.',
-        'Review each department survey before the next teaching period.',
-      ],
-      departmentHighlights: departments.map((dept) => ({
-        department: dept.name,
-        note: 'No responses recorded yet. Consider promoting this department survey.',
-      })),
-      provider: 'NexGen AI (local analysis)',
-      generatedAt: new Date().toISOString(),
+      name: theme.name,
+      count: responseIds.size,
+      positiveCount: new Set(positive.map((comment) => comment.responseId)).size,
+      concernCount: new Set(concern.map((comment) => comment.responseId)).size,
+      explanation: responseIds.size
+        ? `Mentioned in ${responseIds.size} responses. Example from the stored comments: “${bestFragment(matched, theme.patterns, 'any')}”`
+        : '',
+      positiveExplanation: positive.length
+        ? `${new Set(positive.map((comment) => comment.responseId)).size} responses mention this positively. Example: “${bestFragment(positive, theme.patterns, 'positive')}”`
+        : '',
+      concernExplanation: concern.length
+        ? `${new Set(concern.map((comment) => comment.responseId)).size} responses raise this as a concern. Example: “${bestFragment(concern, theme.patterns, 'concern')}”`
+        : '',
     };
+  })
+    .filter((theme) => theme.count >= 2)
+    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+}
+
+function ratingAnalysis(answers) {
+  const ratings = answers.filter((answer) => answer.question_type === 'rating' && answer.answer_rating != null);
+  const counts = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+  for (const answer of ratings) {
+    const value = Number(answer.answer_rating);
+    if (counts[value] != null) counts[value] += 1;
+  }
+  const total = Object.values(counts).reduce((sum, count) => sum + count, 0);
+  const raw = [1, 2, 3, 4, 5].map((rating) => ({
+    rating,
+    exact: total ? (counts[rating] / total) * 100 : 0,
+  }));
+  const distribution = raw.map((row) => ({
+    rating: row.rating,
+    label: `${row.rating} / 5`,
+    count: counts[row.rating],
+    percentage: total ? Math.floor(row.exact * 10) / 10 : 0,
+  }));
+  if (total) {
+    let remainder = Math.round((100 - distribution.reduce((sum, row) => sum + row.percentage, 0)) * 10);
+    const order = raw
+      .map((row, index) => ({ index, fraction: row.exact - distribution[index].percentage }))
+      .sort((a, b) => b.fraction - a.fraction);
+    let step = 0;
+    while (remainder > 0) {
+      const target = distribution[order[step % order.length].index];
+      target.percentage = round1(target.percentage + 0.1);
+      remainder -= 1;
+      step += 1;
+    }
+  }
+  const averageRating = total
+    ? round1(ratings.reduce((sum, answer) => sum + Number(answer.answer_rating), 0) / total)
+    : null;
+  return { responseCount: total, averageRating, distribution };
+}
+
+function parseOptions(value) {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function questionResults(records) {
+  const answersByQuestion = new Map();
+  for (const answer of records.answers) {
+    const list = answersByQuestion.get(answer.question_id) || [];
+    list.push(answer);
+    answersByQuestion.set(answer.question_id, list);
   }
 
-  const sortedDepartments = [...departments].sort((a, b) => (b.averageRating || 0) - (a.averageRating || 0));
-  const strongest = sortedDepartments[0];
-  const weakest = sortedDepartments[sortedDepartments.length - 1];
-  const recentTrend = trend.slice(-3).reduce((sum, day) => sum + day.count, 0);
-  const earlierTrend = trend.slice(0, 3).reduce((sum, day) => sum + day.count, 0);
-  const trendDirection =
-    recentTrend > earlierTrend ? 'increasing' : recentTrend < earlierTrend ? 'decreasing' : 'steady';
+  return records.questions.map((question) => {
+    const answers = answersByQuestion.get(question.id) || [];
+    if (question.question_type === 'rating') {
+      const ratings = answers.map((answer) => answer.answer_rating).filter((value) => value != null).map(Number);
+      const averageRating = ratings.length
+        ? round1(ratings.reduce((sum, value) => sum + value, 0) / ratings.length)
+        : null;
+      return {
+        surveyTitle: question.survey_title,
+        questionText: question.question_text,
+        questionType: 'Rating',
+        responseCount: ratings.length,
+        averageRating,
+        summary: averageRating == null ? 'No ratings recorded.' : `Average ${averageRating} out of 5.`,
+      };
+    }
 
-  const summary = [
-    `NexGen University has ${totals.responses} feedback responses across ${totals.departments} departments with an overall average rating of ${totals.averageRating || '—'}.`,
-    strongest?.averageRating
-      ? `${strongest.name} currently leads with an average rating of ${strongest.averageRating}.`
-      : `${strongest?.name || 'One department'} has the highest response volume so far.`,
-    `Sentiment from written comments appears ${sentiment}, and submissions over the last 7 days are ${trendDirection}.`,
-  ].join(' ');
+    if (question.question_type === 'choice') {
+      const counts = {};
+      for (const option of parseOptions(question.options)) counts[option] = 0;
+      for (const answer of answers) {
+        const text = String(answer.answer_text || '').trim();
+        if (!text) continue;
+        counts[text] = (counts[text] || 0) + 1;
+      }
+      const ranked = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+      const summary = ranked.length
+        ? ranked.map(([choice, count]) => `${choice}: ${count}`).join('; ')
+        : 'No choices recorded.';
+      const responseCount = answers.filter((answer) => String(answer.answer_text || '').trim()).length;
+      return {
+        surveyTitle: question.survey_title,
+        questionText: question.question_text,
+        questionType: 'Choice',
+        responseCount,
+        averageRating: null,
+        summary,
+      };
+    }
 
-  const derivedThemes = themes.length
-    ? themes.map((theme) => `Students frequently mention “${theme}”`)
-    : ['Rating scores are the main signal so far', 'More written feedback would improve theme detection'];
+    const written = answers.filter((answer) => String(answer.answer_text || '').trim());
+    return {
+      surveyTitle: question.survey_title,
+      questionText: question.question_text,
+      questionType: 'Written',
+      responseCount: written.length,
+      averageRating: null,
+      summary: written.length ? `${written.length} written responses.` : 'No written responses.',
+    };
+  });
+}
 
-  const recommendations = [];
-  if (weakest && weakest.name !== strongest?.name) {
-    recommendations.push(`Review ${weakest.name} feedback first and follow up with program leaders.`);
+function programInsights(records, comments) {
+  const responsesByProgram = new Map();
+  for (const response of records.responses) {
+    const name = programName(response);
+    const bucket = responsesByProgram.get(name) || [];
+    bucket.push(response);
+    responsesByProgram.set(name, bucket);
   }
-  if (textResponses.length < 5) {
-    recommendations.push('Add open-text questions or reminders to collect richer qualitative feedback.');
+
+  const ratingsByResponse = new Map();
+  for (const answer of records.answers) {
+    if (answer.question_type !== 'rating' || answer.answer_rating == null) continue;
+    const list = ratingsByResponse.get(answer.response_id) || [];
+    list.push(Number(answer.answer_rating));
+    ratingsByResponse.set(answer.response_id, list);
   }
-  if (trendDirection === 'decreasing') {
-    recommendations.push('Response volume is slowing. Re-promote active surveys before closing dates.');
-  } else {
-    recommendations.push('Maintain current survey visibility while responses remain active.');
+
+  const commentsByResponse = new Map();
+  for (const comment of comments) {
+    const list = commentsByResponse.get(comment.responseId) || [];
+    list.push(comment);
+    commentsByResponse.set(comment.responseId, list);
   }
-  recommendations.push('Use department reports to compare rating changes after each survey cycle.');
+
+  return [...responsesByProgram.entries()]
+    .map(([name, responses]) => {
+      const responseIds = new Set(responses.map((response) => response.id));
+      const ratings = [];
+      for (const responseId of responseIds) {
+        ratings.push(...(ratingsByResponse.get(responseId) || []));
+      }
+      const programComments = [];
+      for (const responseId of responseIds) {
+        programComments.push(...(commentsByResponse.get(responseId) || []));
+      }
+      const topTheme = buildThemes(programComments)[0];
+      const insight = topTheme
+        ? `${topTheme.name} is the most common written theme in this program (${topTheme.count} responses).`
+        : 'Not enough written feedback to identify a theme.';
+      return {
+        name,
+        responseCount: responseIds.size,
+        averageRating: ratings.length
+          ? round1(ratings.reduce((sum, value) => sum + value, 0) / ratings.length)
+          : null,
+        insight,
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export function analyseFeedback(records) {
+  const responseIds = new Set(records.responses.map((response) => response.id));
+  const written = records.answers
+    .filter((answer) => answer.question_type === 'text' && String(answer.answer_text || '').trim())
+    .map((answer) => ({
+      responseId: answer.response_id,
+      text: String(answer.answer_text).trim(),
+    }));
+  const themes = buildThemes(written);
+  const ratings = ratingAnalysis(records.answers);
+  const programs = programInsights(records, written);
+  const positiveFeedback = themes
+    .filter((theme) => theme.positiveCount >= 2)
+    .map((theme) => ({
+      name: theme.name,
+      count: theme.positiveCount,
+      explanation: theme.positiveExplanation,
+    }));
+  const areasForImprovement = themes
+    .filter((theme) => theme.concernCount >= 2)
+    .map((theme) => ({
+      name: theme.name,
+      count: theme.concernCount,
+      explanation: theme.concernExplanation,
+    }));
+  const recommendations = areasForImprovement.slice(0, 4).map((theme) => (
+    `Review ${theme.name.toLowerCase()} with the relevant program team. ${theme.explanation}`
+  ));
+  if (!recommendations.length) {
+    recommendations.push('There is not enough written feedback to recommend a specific action.');
+  }
+
+  const submittedTimes = records.responses
+    .map((response) => response.submitted_at)
+    .filter(Boolean)
+    .sort();
+  const periodStart = formatDay(submittedTimes[0]);
+  const periodEnd = formatDay(submittedTimes[submittedTimes.length - 1]);
+  const closingDates = [...new Set(records.responses.map((response) => response.closing_date).filter(Boolean))];
+  const closingLabel = records.closingDate
+    ? formatDay(records.closingDate)
+    : closingDates.length === 1
+      ? formatDay(closingDates[0])
+      : null;
+
+  const themeSummary = themes.slice(0, 3).map((theme) => `${theme.name} (${theme.count})`).join(', ');
+  const summaryParts = [
+    `${responseIds.size} responses are included in this report.`,
+    ratings.averageRating == null
+      ? 'No rating answers are available to calculate an average.'
+      : `The overall average rating is ${ratings.averageRating} out of 5, from ${ratings.responseCount} rating answers.`,
+    written.length
+      ? `${written.length} written responses were analysed.`
+      : 'No written responses are available.',
+    themes.length
+      ? `The most frequent written themes are ${themeSummary}.`
+      : 'There is not enough repeated written feedback to identify a theme.',
+  ];
+
+  const departments = new Set(
+    records.responses.map((response) => response.department_name).filter(Boolean)
+  );
 
   return {
-    summary,
-    themes: derivedThemes.slice(0, 4),
-    recommendations: recommendations.slice(0, 4),
-    departmentHighlights: departments.map((dept) => ({
-      department: dept.name,
-      note:
-        dept.responseCount === 0
-          ? 'No responses yet.'
-          : dept.averageRating
-            ? `${dept.responseCount} responses with an average rating of ${dept.averageRating}.`
-            : `${dept.responseCount} responses collected.`,
-    })),
+    reportName: records.reportName,
+    reportingPeriod: periodStart && periodEnd ? `${periodStart} to ${periodEnd}` : 'Not specified',
+    surveyClosing: closingLabel,
+    summary: summaryParts.join(' '),
+    themes: themes.map(({ name, count, explanation }) => ({ name, count, explanation })),
+    themeFrequency: themes.map(({ name, count }) => ({ name, count })),
+    positiveFeedback,
+    areasForImprovement,
+    recommendations,
+    departmentInsights: programs,
+    ratingAnalysis: ratings,
+    writtenFeedbackAnalysis: {
+      totalWritten: written.length,
+      themes: themes.map(({ name, count, explanation }) => ({ name, count, explanation })),
+      positiveThemes: positiveFeedback,
+      improvementThemes: areasForImprovement,
+    },
+    questions: questionResults(records),
+    totals: {
+      totalResponses: responseIds.size,
+      uniqueStudents: new Set(records.responses.map((response) => response.student_email).filter(Boolean)).size,
+      averageRating: ratings.averageRating,
+      ratingAnswerCount: ratings.responseCount,
+      writtenCount: written.length,
+      departmentCount: departments.size,
+      programCount: programs.filter((program) => program.name !== 'Not specified').length,
+    },
     provider: 'NexGen AI (local analysis)',
     generatedAt: new Date().toISOString(),
   };
 }
 
-async function generateOpenAiInsights(context) {
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
-      temperature: 0.4,
-      response_format: { type: 'json_object' },
-      messages: [
-        {
-          role: 'system',
-          content:
-            'You analyse university student feedback for staff. Return JSON only with keys: summary (string), themes (string array), recommendations (string array), departmentHighlights (array of {department, note}). Be concise and practical.',
-        },
-        {
-          role: 'user',
-          content: `Analyse this NexGen University feedback report:\n${JSON.stringify(context)}`,
-        },
-      ],
-    }),
-  });
-
-  if (!response.ok) {
-    const errorBody = await response.text();
-    throw new Error(errorBody || 'OpenAI request failed.');
-  }
-
-  const data = await response.json();
-  const content = data.choices?.[0]?.message?.content;
-  if (!content) throw new Error('OpenAI returned an empty response.');
-
-  const parsed = JSON.parse(content);
-  return {
-    summary: parsed.summary || '',
-    themes: parsed.themes || [],
-    recommendations: parsed.recommendations || [],
-    departmentHighlights: parsed.departmentHighlights || [],
-    provider: 'OpenAI',
-    generatedAt: new Date().toISOString(),
-  };
-}
-
-export async function generateAiInsights(report) {
-  const context = buildReportContext(report);
-
-  if (process.env.OPENAI_API_KEY) {
-    try {
-      return await generateOpenAiInsights(context);
-    } catch {
-      const local = generateLocalInsights(context);
-      return {
-        ...local,
-        provider: 'NexGen AI (local fallback)',
-      };
-    }
-  }
-
-  return generateLocalInsights(context);
+export function generateAiInsights() {
+  return analyseFeedback(getReportRecords());
 }

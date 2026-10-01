@@ -1380,15 +1380,35 @@ a.portal-stat:hover {
   margin: 0;
 }
 
+.ai-insights-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 0.75rem;
+  font-size: 0.9rem;
+}
+
+.ai-insights-table th,
+.ai-insights-table td {
+  text-align: left;
+  padding: 0.45rem 0.55rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.ai-insights-table th {
+  color: var(--primary);
+  font-size: 0.78rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.download-error {
+  margin: 0.4rem 0 0;
+}
+
 @media (min-width: 900px) {
   .ai-insights-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .ai-insights-summary,
-  .ai-insights-departments,
-  .ai-insights-provider {
-    grid-column: 1 / -1;
+    grid-template-columns: 1fr;
   }
 }
 
