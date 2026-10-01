@@ -1696,6 +1696,102 @@ export function getSurveyReport(surveyId) {
   };
 }
 
+export function getReportRecords({ surveyId = null, departmentId = null, courseId = null } = {}) {
+  const clauses = [];
+  const params = [];
+  if (surveyId) {
+    clauses.push('r.survey_id = ?');
+    params.push(surveyId);
+  }
+  if (departmentId) {
+    clauses.push('st.department_id = ?');
+    params.push(departmentId);
+  }
+  if (courseId) {
+    clauses.push('st.course_id = ?');
+    params.push(courseId);
+  }
+  const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+
+  const responses = all(
+    `SELECT r.id, r.survey_id, r.submitted_at, r.student_email, r.student_name, r.is_anonymous,
+            s.title AS survey_title, s.opening_date, s.closing_date,
+            d.name AS department_name, c.code AS course_code, c.name AS course_name
+     FROM responses r
+     JOIN surveys s ON s.id = r.survey_id
+     LEFT JOIN students st ON st.email = r.student_email
+     LEFT JOIN departments d ON d.id = st.department_id
+     LEFT JOIN courses c ON c.id = st.course_id
+     ${where}
+     ORDER BY r.submitted_at, r.id`,
+    params
+  );
+
+  const answers = all(
+    `SELECT a.response_id, a.answer_text, a.answer_rating,
+            q.id AS question_id, q.question_text, q.question_type, q.options, q.sort_order, q.survey_id
+     FROM answers a
+     JOIN questions q ON q.id = a.question_id
+     JOIN responses r ON r.id = a.response_id
+     LEFT JOIN students st ON st.email = r.student_email
+     ${where}
+     ORDER BY q.survey_id, q.sort_order, a.response_id`,
+    params
+  );
+
+  let questions;
+  if (surveyId) {
+    questions = all(
+      `SELECT q.id, q.survey_id, q.question_text, q.question_type, q.options, q.sort_order,
+              s.title AS survey_title
+       FROM questions q
+       JOIN surveys s ON s.id = q.survey_id
+       WHERE q.survey_id = ?
+       ORDER BY q.sort_order, q.id`,
+      [surveyId]
+    );
+  } else if (departmentId || courseId) {
+    const surveyIds = [...new Set(responses.map((row) => row.survey_id))];
+    questions = surveyIds.length
+      ? all(
+          `SELECT q.id, q.survey_id, q.question_text, q.question_type, q.options, q.sort_order,
+                  s.title AS survey_title
+           FROM questions q
+           JOIN surveys s ON s.id = q.survey_id
+           WHERE q.survey_id IN (${surveyIds.map(() => '?').join(',')})
+           ORDER BY s.title, q.sort_order, q.id`,
+          surveyIds
+        )
+      : [];
+  } else {
+    questions = all(
+      `SELECT q.id, q.survey_id, q.question_text, q.question_type, q.options, q.sort_order,
+              s.title AS survey_title
+       FROM questions q
+       JOIN surveys s ON s.id = q.survey_id
+       ORDER BY s.title, q.sort_order, q.id`
+    );
+  }
+
+  let reportName = 'University feedback report';
+  let openingDate = null;
+  let closingDate = null;
+  if (surveyId) {
+    const survey = get('SELECT title, opening_date, closing_date FROM surveys WHERE id = ?', [surveyId]);
+    reportName = survey?.title || 'Survey report';
+    openingDate = survey?.opening_date || null;
+    closingDate = survey?.closing_date || null;
+  } else if (departmentId) {
+    const department = get('SELECT name FROM departments WHERE id = ?', [departmentId]);
+    reportName = department?.name ? `${department.name} feedback report` : 'Department feedback report';
+  } else if (courseId) {
+    const course = get('SELECT code, name FROM courses WHERE id = ?', [courseId]);
+    reportName = course ? `${course.code} ${course.name} feedback report` : 'Program feedback report';
+  }
+
+  return { reportName, openingDate, closingDate, responses, answers, questions };
+}
+
 export function buildExportRows(type, id = null) {
   if (type === 'university') {
     const report = getUniversityReport();
