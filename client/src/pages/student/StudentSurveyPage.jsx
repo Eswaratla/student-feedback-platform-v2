@@ -24,8 +24,14 @@ export default function StudentSurveyPage() {
   async function openSurvey(surveyMeta) {
     try {
       const survey = await api.getSurvey(surveyMeta.id);
+      const selectedRatings = {};
+      for (const question of survey.questions) {
+        if (question.questionType === 'rating') {
+          selectedRatings[question.id] = { questionId: question.id, answerRating: 5 };
+        }
+      }
       setSelectedSurvey(survey);
-      setAnswers({});
+      setAnswers(selectedRatings);
       setIsAnonymous(false);
       setError('');
     } catch (err) {
@@ -52,7 +58,16 @@ export default function StudentSurveyPage() {
         studentEmail: user.email,
         studentName: user.name,
         isAnonymous,
-        answers: selectedSurvey.questions.map((q) => answers[q.id] || { questionId: q.id }),
+        answers: selectedSurvey.questions.map((question) => {
+          const current = answers[question.id];
+          if (question.questionType === 'rating') {
+            const answerRating = current?.answerRating;
+            return answerRating == null
+              ? { questionId: question.id }
+              : { questionId: question.id, answerRating: Number(answerRating) };
+          }
+          return current || { questionId: question.id };
+        }),
       });
       setSelectedSurvey(null);
       setAnswers({});
@@ -145,7 +160,7 @@ export default function StudentSurveyPage() {
                 {question.questionText}
                 {question.questionType === 'rating' && (
                   <select
-                    value={answers[question.id]?.answerRating || 5}
+                    value={answers[question.id]?.answerRating ?? 5}
                     onChange={(e) => updateAnswer(question.id, e.target.value, 'rating')}
                     required
                   >
